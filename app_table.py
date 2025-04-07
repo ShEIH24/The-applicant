@@ -4,17 +4,19 @@ from tkinter import ttk, messagebox, filedialog
 import pandas as pd
 from classes import *
 from logger import Logger
-import os
+from app_add_applicant import add_applicant_window
+from app_edit_applicant import ApplicantEditForm
 
 
 class ApplicantTableWindow:
-    def __init__(self, parent, applicants, logger):
+    def __init__(self, parent, applicants, logger, offer_import=True):
         """
         Инициализация окна с таблицей абитуриентов
 
         :param parent: Родительский виджет
         :param applicants: Список абитуриентов
         :param logger: Экземпляр логгера
+        :param offer_import: Флаг, предлагать ли импорт данных (только при первом запуске)
         """
         self.parent = parent
         self.applicants = applicants
@@ -24,8 +26,9 @@ class ApplicantTableWindow:
         # Логирование запуска окна с таблицей
         self.logger.info("Инициализация окна с таблицей абитуриентов")
 
-        # Предложение импортировать данные из Excel
-        self.offer_import()
+        # Предложение импортировать данные из Excel только при запуске программы
+        if offer_import:
+            self.offer_import()
 
         # Настройка адаптивного интерфейса
         self.setup_ui()
@@ -70,15 +73,19 @@ class ApplicantTableWindow:
                     visit_date = None
                     if 'Дата посещения' in row and pd.notna(row['Дата посещения']):
                         try:
-                            visit_date = pd.to_datetime(row['Дата посещения']).to_pydatetime()
+                            # Явно указываем формат даты при конвертации
+                            visit_date = pd.to_datetime(row['Дата посещения'], dayfirst=True).to_pydatetime()
                         except:
                             visit_date = None
 
                     # Создание объектов информации
                     app_details = ApplicationDetails(
+                        number=row.get('Номер', ''),
                         code=row.get('Код', ''),
                         rating=float(row.get('Рейтинг', 0)),
-                        has_original=row.get('Оригинал', '') == 'Да'
+                        has_original=row.get('Оригинал', '') == 'Да',
+                        benefits=row.get('Льгота', ''),
+                        submission_date=row.get('Дата подачи', '')
                     )
 
                     education = EducationalBackground(
@@ -162,31 +169,31 @@ class ApplicantTableWindow:
         button_frame.grid_columnconfigure(7, weight=1)  # Увеличено число столбцов
 
         # Кнопки управления
-        self.add_button = tk.Button(button_frame, text="Добавить", width=10,
+        self.add_button = tk.Button(button_frame, bg="#3f51b5", fg="white", text="Добавить", width=10,
                                     command=self.add_applicant)
         self.add_button.grid(row=0, column=0, padx=5)
 
-        self.edit_button = tk.Button(button_frame, text="Изменить", width=10,
+        self.edit_button = tk.Button(button_frame, bg="#3f51b5", fg="white", text="Изменить", width=10,
                                      command=self.edit_applicant)
         self.edit_button.grid(row=0, column=1, padx=5)
 
-        self.delete_button = tk.Button(button_frame, text="Удалить", width=10,
+        self.delete_button = tk.Button(button_frame, bg="#3f51b5", fg="white", text="Удалить", width=10,
                                        command=self.delete_applicant)
         self.delete_button.grid(row=0, column=2, padx=5)
 
-        self.refresh_button = tk.Button(button_frame, text="Обновить", width=10,
+        self.refresh_button = tk.Button(button_frame, bg="#3f51b5", fg="white", text="Обновить", width=10,
                                         command=self.refresh_data)
         self.refresh_button.grid(row=0, column=3, padx=5)
 
-        self.filter_button = tk.Button(button_frame, text="Фильтр", width=10,
+        self.filter_button = tk.Button(button_frame, bg="#3f51b5", fg="white", text="Фильтр", width=10,
                                        command=self.filter_data)
         self.filter_button.grid(row=0, column=4, padx=5)
 
-        self.export_button = tk.Button(button_frame, text="Экспорт", width=10,
+        self.export_button = tk.Button(button_frame, bg="#3f51b5", fg="white", text="Экспорт", width=10,
                                        command=self.export_to_excel)
         self.export_button.grid(row=0, column=5, padx=5)
 
-        self.import_button = tk.Button(button_frame, text="Импорт", width=10,
+        self.import_button = tk.Button(button_frame, bg="#3f51b5", fg="white", text="Импорт", width=10,
                                        command=self.import_from_excel)
         self.import_button.grid(row=0, column=6, padx=5)
 
@@ -246,7 +253,7 @@ class ApplicantTableWindow:
         """Настройка столбцов таблицы"""
         # Определение столбцов
         self.table["columns"] = (
-            "fio", "case_number", "code", "rating", "benefits", "original",
+            "number", "fio", "code", "rating", "benefits", "original",
             "city", "dormitory", "institution", "submission_date",
             "visit_date", "info_source", "phone", "vk", "parent", "parent_phone", "notes"
         )
@@ -256,8 +263,8 @@ class ApplicantTableWindow:
 
         # Настройка заголовков и ширины столбцов
         columns_config = {
+            "number": {"text": "Номер", "width": 50, "anchor": "center"},
             "fio": {"text": "ФИО", "width": 200, "anchor": "w"},
-            "case_number": {"text": "Номер дела", "width": 100, "anchor": "center"},
             "code": {"text": "Код", "width": 80, "anchor": "center"},
             "rating": {"text": "Рейтинг", "width": 80, "anchor": "center"},
             "benefits": {"text": "Льгота", "width": 100, "anchor": "center"},
@@ -281,7 +288,50 @@ class ApplicantTableWindow:
                 # Установка минимальной ширины для столбца на основе длины заголовка
                 min_width = max(config["width"], len(config["text"]) * 10)
                 self.table.column(col_id, width=min_width, minwidth=min_width, anchor=config["anchor"])
-                self.table.heading(col_id, text=config["text"], anchor=config["anchor"])
+                self.table.heading(col_id, text=config["text"], anchor=config["anchor"],
+                                   command=lambda _col=col_id: self.sort_table(_col))
+
+        # Добавляем переменную для отслеживания сортировки
+        self.sort_by = None
+        self.sort_reverse = False
+
+    def sort_table(self, column):
+        """Сортировка таблицы по выбранному столбцу"""
+        self.logger.info(f"Сортировка таблицы по столбцу: {column}")
+
+        # Определяем направление сортировки
+        if self.sort_by == column:
+            self.sort_reverse = not self.sort_reverse
+        else:
+            self.sort_reverse = False
+            self.sort_by = column
+
+        # Маппинг столбцов таблицы на атрибуты класса Applicant
+        column_mapping = {
+            "number": lambda a: a.get_number(),
+            "fio": lambda a: a.get_full_name().lower(),
+            "code": lambda a: a.get_code().lower(),
+            "rating": lambda a: float(a.get_rating()),
+            "benefits": lambda a: (a.get_benefits() or "").lower(),
+            "original": lambda a: a.has_original_documents(),
+            "city": lambda a: a.get_city().lower(),
+            "dormitory": lambda a: a.additional_info.dormitory_needed,
+            "institution": lambda a: a.education.institution.lower(),
+            "visit_date": lambda a: (a.additional_info.department_visit or datetime.min),
+            "info_source": lambda a: (a.additional_info.information_source or "").lower(),
+            "phone": lambda a: a.get_phone(),
+            "vk": lambda a: (a.contact_info.vk or "").lower(),
+            "parent": lambda a: (a.parent.full_name.lower() if a.parent else ""),
+            "parent_phone": lambda a: (a.parent.phone if a.parent else ""),
+            "notes": lambda a: (a.additional_info.notes or "").lower()
+        }
+
+        # Если выбран столбец для сортировки
+        if column in column_mapping:
+            # Сортируем список абитуриентов
+            self.applicants.sort(key=column_mapping[column], reverse=self.sort_reverse)
+            # Обновляем таблицу
+            self.load_data()
 
     def load_data(self):
         """Загрузка данных в таблицу"""
@@ -311,6 +361,9 @@ class ApplicantTableWindow:
             if applicant.additional_info.department_visit:
                 visit_date = applicant.additional_info.department_visit.strftime("%d.%m.%Y")
 
+            submission_date = ""
+            if applicant.application_details.submission_date:
+                submission_date = applicant.application_details.get_submission_date_formatted()
             parent_name = ""
             parent_phone = ""
             if applicant.parent:
@@ -319,8 +372,8 @@ class ApplicantTableWindow:
 
             # Вставка данных в таблицу
             values = (
+                applicant.get_number(),
                 applicant.get_full_name(),
-                "",  # case_number (пустое поле для номера дела, которое не в модели)
                 applicant.get_code(),
                 str(applicant.get_rating()),
                 applicant.get_benefits() or "",
@@ -328,14 +381,14 @@ class ApplicantTableWindow:
                 applicant.get_city(),
                 "Да" if applicant.additional_info.dormitory_needed else "Нет",
                 applicant.education.institution,
-                "",  # submission_date (пустое поле для даты подачи, которое не в модели)
+                submission_date,
                 visit_date,
                 applicant.additional_info.information_source or "",
                 applicant.get_phone(),
                 applicant.contact_info.vk or "",
                 parent_name,
                 parent_phone,
-                applicant.additional_info.notes or ""  # Добавление примечания
+                applicant.additional_info.notes or ""
             )
 
             self.table.insert("", "end", iid=str(i), values=values)
@@ -355,6 +408,7 @@ class ApplicantTableWindow:
         """Очистка placeholder в поле поиска при фокусе"""
         if self.search_var.get() == "Поиск абитуриента":
             self.search_entry.delete(0, tk.END)
+            self.search_var.set("")  # Добавлено для очистки переменной
 
     def restore_search_placeholder(self, event):
         """Восстановление placeholder в поле поиска при потере фокуса"""
@@ -364,13 +418,14 @@ class ApplicantTableWindow:
     def search_applicant(self, event=None):
         """Поиск абитуриента по введенному тексту"""
         search_text = self.search_var.get().lower()
-        if search_text == "поиск абитуриента":
+        if not search_text or search_text == "поиск абитуриента":
             return
 
         self.logger.info(f"Поиск абитуриента по тексту: {search_text}")
 
         # Сбрасываем текущее выделение
-        self.table.selection_remove(self.table.selection())
+        for item in self.table.selection():
+            self.table.selection_remove(item)
 
         # Перебираем все строки таблицы
         found = False
@@ -394,222 +449,32 @@ class ApplicantTableWindow:
             self.logger.info(f"Абитуриент с текстом '{search_text}' не найден")
 
     def add_applicant(self):
-        """Открытие формы добавления абитуриента"""
+        """Открывает окно для добавления нового абитуриента"""
         self.logger.info("Открытие формы добавления абитуриента")
-        self.parent.destroy()
-        # Импортируем здесь, чтобы избежать циклического импорта
-        from app_add_applicant import ApplicantForm
-        app = ApplicantForm()
-        app.mainloop()
+
+        # Вызываем функцию из отдельного модуля
+        add_applicant_window(self.parent, self.applicants, self.load_data, self.logger)
 
     def edit_applicant(self):
         """Открытие формы редактирования выбранного абитуриента"""
+        if not self.applicants:
+            messagebox.showwarning("Предупреждение", "Нет записей для редактирования")
+            self.logger.warning("Попытка редактирования при отсутствии записей")
+            return
+
         if not self.selected_applicant:
             messagebox.showwarning("Предупреждение", "Пожалуйста, выберите абитуриента для редактирования")
             self.logger.warning("Попытка редактирования без выбора абитуриента")
             return
 
-        self.logger.info(f"Открытие формы редактирования абитуриента: {self.selected_applicant.get_full_name()}")
-
-        # Создаем окно редактирования
-        edit_window = tk.Toplevel(self.parent)
-        edit_window.title(f"Редактирование абитуриента: {self.selected_applicant.get_full_name()}")
-        edit_window.geometry("800x600")
-        edit_window.resizable(False, False)  # Запрет изменения размера окна
-        edit_window.grab_set()  # Делаем окно модальным
-
-        # Создаем Canvas с полосой прокрутки
-        canvas = tk.Canvas(edit_window)
-        scrollbar = ttk.Scrollbar(edit_window, orient="vertical", command=canvas.yview)
-        scrollable_frame = tk.Frame(canvas)
-
-        scrollable_frame.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        # Создаем и показываем форму редактирования
+        edit_form = ApplicantEditForm(
+            parent=self.parent,
+            selected_applicant=self.selected_applicant,
+            on_save_callback=self.refresh_data,
+            logger=self.logger
         )
-
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
-
-        canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
-
-        # Создаем фреймы для организации интерфейса в scrollable_frame вместо edit_window
-        main_frame = tk.Frame(scrollable_frame, padx=20, pady=20)
-        main_frame.pack(fill="both", expand=True)
-
-        # Создаем фрейм для основной информации
-        personal_frame = tk.LabelFrame(main_frame, text="Личная информация", padx=10, pady=10)
-        personal_frame.pack(fill="x", pady=5)
-
-        # Поля для ввода основной информации
-        tk.Label(personal_frame, text="ФИО:").grid(row=0, column=0, sticky="w", pady=5)
-        full_name_var = tk.StringVar(value=self.selected_applicant.get_full_name())
-        tk.Entry(personal_frame, textvariable=full_name_var, width=40).grid(row=0, column=1, sticky="w", pady=5)
-
-        tk.Label(personal_frame, text="Телефон:").grid(row=1, column=0, sticky="w", pady=5)
-        phone_var = tk.StringVar(value=self.selected_applicant.get_phone())
-        tk.Entry(personal_frame, textvariable=phone_var, width=40).grid(row=1, column=1, sticky="w", pady=5)
-
-        tk.Label(personal_frame, text="Город:").grid(row=2, column=0, sticky="w", pady=5)
-        city_var = tk.StringVar(value=self.selected_applicant.get_city())
-        tk.Entry(personal_frame, textvariable=city_var, width=40).grid(row=2, column=1, sticky="w", pady=5)
-
-        tk.Label(personal_frame, text="Профиль ВК:").grid(row=3, column=0, sticky="w", pady=5)
-        vk_var = tk.StringVar(value=self.selected_applicant.contact_info.vk or "")
-        tk.Entry(personal_frame, textvariable=vk_var, width=40).grid(row=3, column=1, sticky="w", pady=5)
-
-        # Фрейм для информации о образовании
-        education_frame = tk.LabelFrame(main_frame, text="Образование", padx=10, pady=10)
-        education_frame.pack(fill="x", pady=5)
-
-        tk.Label(education_frame, text="Учебное заведение:").grid(row=0, column=0, sticky="w", pady=5)
-        institution_var = tk.StringVar(value=self.selected_applicant.education.institution)
-        tk.Entry(education_frame, textvariable=institution_var, width=40).grid(row=0, column=1, sticky="w", pady=5)
-
-        # Фрейм для информации о заявке
-        application_frame = tk.LabelFrame(main_frame, text="Информация о заявке", padx=10, pady=10)
-        application_frame.pack(fill="x", pady=5)
-
-        tk.Label(application_frame, text="Код:").grid(row=0, column=0, sticky="w", pady=5)
-        code_var = tk.StringVar(value=self.selected_applicant.get_code())
-        tk.Entry(application_frame, textvariable=code_var, width=20).grid(row=0, column=1, sticky="w", pady=5)
-
-        tk.Label(application_frame, text="Рейтинг:").grid(row=1, column=0, sticky="w", pady=5)
-        rating_var = tk.StringVar(value=str(self.selected_applicant.get_rating()))
-        tk.Entry(application_frame, textvariable=rating_var, width=20).grid(row=1, column=1, sticky="w", pady=5)
-
-        tk.Label(application_frame, text="Льгота:").grid(row=2, column=0, sticky="w", pady=5)
-        benefits_var = tk.StringVar(value=self.selected_applicant.get_benefits() or "")
-        tk.Entry(application_frame, textvariable=benefits_var, width=20).grid(row=2, column=1, sticky="w", pady=5)
-
-        has_original_var = tk.BooleanVar(value=self.selected_applicant.has_original_documents())
-        tk.Checkbutton(application_frame, text="Оригинал документов", variable=has_original_var).grid(row=3, column=0,
-                                                                                                      columnspan=2,
-                                                                                                      sticky="w",
-                                                                                                      pady=5)
-
-        # Фрейм для дополнительной информации
-        additional_frame = tk.LabelFrame(main_frame, text="Дополнительная информация", padx=10, pady=10)
-        additional_frame.pack(fill="x", pady=5)
-
-        dormitory_var = tk.BooleanVar(value=self.selected_applicant.additional_info.dormitory_needed)
-        tk.Checkbutton(additional_frame, text="Нужно общежитие", variable=dormitory_var).grid(row=0, column=0,
-                                                                                              columnspan=2, sticky="w",
-                                                                                              pady=5)
-
-        tk.Label(additional_frame, text="Дата посещения:").grid(row=1, column=0, sticky="w", pady=5)
-        visit_date_var = tk.StringVar()
-        if self.selected_applicant.additional_info.department_visit:
-            visit_date_str = self.selected_applicant.additional_info.department_visit.strftime("%d.%m.%Y")
-            visit_date_var.set(visit_date_str)
-        visit_date_entry = tk.Entry(additional_frame, textvariable=visit_date_var, width=20)
-        visit_date_entry.grid(row=1, column=1, sticky="w", pady=5)
-
-        tk.Label(additional_frame, text="Источник информации:").grid(row=2, column=0, sticky="w", pady=5)
-        info_source_var = tk.StringVar(value=self.selected_applicant.additional_info.information_source or "")
-        tk.Entry(additional_frame, textvariable=info_source_var, width=40).grid(row=2, column=1, sticky="w", pady=5)
-
-        tk.Label(additional_frame, text="Примечания:").grid(row=3, column=0, sticky="w", pady=5)
-        notes_text = tk.Text(additional_frame, width=40, height=4)
-        notes_text.grid(row=3, column=1, sticky="w", pady=5)
-        if self.selected_applicant.additional_info.notes:
-            notes_text.insert("1.0", self.selected_applicant.additional_info.notes)
-
-        # Фрейм для информации о родителе
-        parent_frame = tk.LabelFrame(main_frame, text="Информация о родителе", padx=10, pady=10)
-        parent_frame.pack(fill="x", pady=5)
-
-        tk.Label(parent_frame, text="ФИО родителя:").grid(row=0, column=0, sticky="w", pady=5)
-        parent_name_var = tk.StringVar()
-        if self.selected_applicant.parent:
-            parent_name_var.set(self.selected_applicant.parent.full_name)
-        tk.Entry(parent_frame, textvariable=parent_name_var, width=40).grid(row=0, column=1, sticky="w", pady=5)
-
-        tk.Label(parent_frame, text="Телефон родителя:").grid(row=1, column=0, sticky="w", pady=5)
-        parent_phone_var = tk.StringVar()
-        if self.selected_applicant.parent:
-            parent_phone_var.set(self.selected_applicant.parent.phone)
-        tk.Entry(parent_frame, textvariable=parent_phone_var, width=40).grid(row=1, column=1, sticky="w", pady=5)
-
-        # Кнопки управления
-        button_frame = tk.Frame(main_frame)
-        button_frame.pack(fill="x", pady=10)
-
-        def on_edit_closing():
-            ask_save = messagebox.askyesnocancel("Сохранение изменений",
-                                                 "Хотите сохранить внесенные изменения?")
-            if ask_save is None:  # Пользователь нажал Отмена
-                return
-            elif ask_save:  # Пользователь нажал Да
-                save_changes()
-            else:  # Пользователь нажал Нет
-                edit_window.destroy()
-
-        # Привязываем обработчик к событию закрытия окна
-        edit_window.protocol("WM_DELETE_WINDOW", on_edit_closing)
-
-        def save_changes():
-            try:
-                # Обновление данных абитуриента
-                self.selected_applicant.full_name = full_name_var.get()
-                self.selected_applicant.phone = phone_var.get()
-                self.selected_applicant.city = city_var.get()
-                self.selected_applicant.contact_info.vk = vk_var.get()
-
-                self.selected_applicant.education.institution = institution_var.get()
-
-                self.selected_applicant.application_details.code = code_var.get()
-                self.selected_applicant.application_details.rating = float(rating_var.get())
-                self.selected_applicant.application_details.benefits = benefits_var.get()
-                self.selected_applicant.application_details.has_original = has_original_var.get()
-
-                self.selected_applicant.additional_info.dormitory_needed = dormitory_var.get()
-                self.selected_applicant.additional_info.information_source = info_source_var.get()
-                self.selected_applicant.additional_info.notes = notes_text.get("1.0", "end-1c")
-
-                # Обработка даты посещения
-                visit_date_str = visit_date_var.get()
-                if visit_date_str:
-                    try:
-                        self.selected_applicant.additional_info.department_visit = datetime.strptime(visit_date_str,
-                                                                                                     "%d.%m.%Y")
-                    except ValueError:
-                        messagebox.showwarning("Ошибка даты", "Неверный формат даты. Используйте ДД.ММ.ГГГГ")
-                        return
-
-                # Обработка информации о родителе
-                parent_name = parent_name_var.get()
-                if parent_name:
-                    if not self.selected_applicant.parent:
-                        self.selected_applicant.parent = Parent(parent_name, parent_phone_var.get())
-                    else:
-                        self.selected_applicant.parent.full_name = parent_name
-                        self.selected_applicant.parent.phone = parent_phone_var.get()
-                else:
-                    self.selected_applicant.parent = None
-
-                self.logger.info(f"Сохранены изменения для абитуриента: {self.selected_applicant.get_full_name()}")
-
-                # Обновление данных в таблице
-                self.refresh_data()
-
-                # Закрытие окна редактирования
-                edit_window.destroy()
-                messagebox.showinfo("Редактирование", "Данные абитуриента успешно обновлены")
-
-            except Exception as e:
-                error_msg = f"Ошибка при сохранении данных: {str(e)}"
-                self.logger.error(error_msg)
-                messagebox.showerror("Ошибка", error_msg)
-
-        # Move these button definitions OUTSIDE the save_changes function
-        save_button = tk.Button(button_frame, text="Сохранить", width=10, command=save_changes)
-        save_button.pack(side="left", padx=5)
-
-        cancel_button = tk.Button(button_frame, text="Отмена", width=10,
-                                  command=on_edit_closing)
-        cancel_button.pack(side="left", padx=5)
+        edit_form.show()
         
     def delete_applicant(self):
         """Удаление выбранного абитуриента"""
@@ -623,18 +488,16 @@ class ApplicantTableWindow:
                                      f"Вы уверены, что хотите удалить абитуриента {self.selected_applicant.get_full_name()}?")
 
         if confirm:
-            # Получаем индекс выбранного абитуриента
-            index = self.applicants.index(self.selected_applicant)
-
             # Удаляем из списка
             self.applicants.remove(self.selected_applicant)
 
-            # Удаляем из таблицы
-            self.table.delete(str(index))
+            # Перенумеровываем всех абитуриентов
+            for i, applicant in enumerate(self.applicants, 1):
+                applicant.application_details.number = str(i)
 
             self.logger.info(f"Удален абитуриент: {self.selected_applicant.get_full_name()}")
 
-            # Обновляем индексы в таблице
+            # Обновляем таблицу
             self.refresh_data()
 
             messagebox.showinfo("Информация", "Абитуриент успешно удален")
@@ -779,16 +642,20 @@ class ApplicantTableWindow:
             # Создаем DataFrame для экспорта
             data = []
             columns = [
-                "ФИО", "Номер дела", "Код", "Рейтинг", "Льгота", "Оригинал",
+                "Номер", "ФИО", "Код", "Рейтинг", "Льгота", "Оригинал",
                 "Город", "Общежитие", "Учебное заведение", "Дата подачи",
                 "Дата посещения", "Откуда узнал/а", "Телефон", "Профиль ВК",
                 "Родитель", "Телефон родителя", "Примечание"
             ]
 
-            for applicant in self.applicants:
+            for i, applicant in enumerate(self.applicants):
                 visit_date = ""
                 if applicant.additional_info.department_visit:
                     visit_date = applicant.additional_info.department_visit.strftime("%d.%m.%Y")
+
+                submission_date = ""
+                if applicant.application_details.submission_date:
+                    submission_date = applicant.application_details.get_submission_date_formatted()
 
                 parent_name = ""
                 parent_phone = ""
@@ -796,9 +663,10 @@ class ApplicantTableWindow:
                     parent_name = applicant.parent.full_name
                     parent_phone = applicant.parent.phone
 
+
                 row = [
+                    applicant.get_number(),
                     applicant.get_full_name(),
-                    "",  # Номер дела (пустое поле, не в модели)
                     applicant.get_code(),
                     applicant.get_rating(),
                     applicant.get_benefits() or "",
@@ -806,7 +674,7 @@ class ApplicantTableWindow:
                     applicant.get_city(),
                     "Да" if applicant.additional_info.dormitory_needed else "Нет",
                     applicant.education.institution,
-                    "",  # Дата подачи (пустое поле, не в модели)
+                    submission_date,
                     visit_date,
                     applicant.additional_info.information_source or "",
                     applicant.get_phone(),
@@ -840,29 +708,6 @@ if __name__ == "__main__":
     # Создаем тестовые данные
     logger = Logger("test.log")
     applicant_registry = ApplicantRegistry()
-
-    # Добавляем тестового абитуриента
-    app_details = ApplicationDetails(code="ИТ-01", rating=85.5, has_original=True)
-    education = EducationalBackground(institution="Школа №42")
-    contact_info = ContactInfo(phone="+7 123 456-78-90", vk="vk.com/test")
-    additional_info = AdditionalInfo(
-        department_visit=datetime.now(),
-        notes="Тестовая запись",
-        information_source="Интернет",
-        dormitory_needed=True
-    )
-
-    applicant = Applicant(
-        full_name="Иванов Иван Иванович",
-        phone="+7 123 456-78-90",
-        city="Москва",
-        application_details=app_details,
-        education=education,
-        contact_info=contact_info,
-        additional_info=additional_info
-    )
-
-    applicant_registry.add_applicant(applicant)
 
     # Создаем окно с таблицей
     app = ApplicantTableWindow(root, applicant_registry.applicants, logger)
