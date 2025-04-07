@@ -706,7 +706,7 @@ if __name__ == "__main__":
     root.iconphoto(True, icon)
 
     # Создаем тестовые данные
-    logger = Logger("test.log")
+    logger = Logger("logs.log")
     applicant_registry = ApplicantRegistry()
 
     # Создаем окно с таблицей
