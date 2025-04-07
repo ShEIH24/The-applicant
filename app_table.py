@@ -698,12 +698,12 @@ class ApplicantTableWindow:
             self.logger.error(error_msg)
             messagebox.showerror("Ошибка", f"Произошла ошибка при экспорте:\n{str(e)}")
 
-
-# Для тестирования, если файл запущен напрямую
 if __name__ == "__main__":
     root = tk.Tk()
     root.title("Реестр абитуриентов")
     root.geometry("800x600")
+    icon = tk.PhotoImage(file="icon.png")
+    root.iconphoto(True, icon)
 
     # Создаем тестовые данные
     logger = Logger("test.log")
