@@ -67,7 +67,7 @@ def create_context_menu(widget, parent_window):
         except:
             pass
 
-    # Добавляем пункты меню - ВАЖНО: это должно быть вне обработчика исключений!
+    # Добавляем пункты меню
     popup_menu.add_command(label="Копировать", command=copy_to_clipboard)
     popup_menu.add_command(label="Вырезать", command=cut_to_clipboard)
     popup_menu.add_command(label="Вставить", command=paste_from_clipboard)
@@ -179,12 +179,12 @@ def add_applicant_window(parent, applicants, load_data_callback, logger):
     form_container.rowconfigure(1, weight=1)
 
     # Основные данные
-    basic_frame = tk.LabelFrame(form_container, text="ОСНОВНЫЕ ДАННЫЕ:", font=("Arial", 12, "bold"), padx=10,
+    basic_frame = tk.LabelFrame(form_container, text="ОСНОВНАЯ ИНФОРМАЦИЯ:", font=("Arial", 12, "bold"), padx=10,
                                 pady=10)
-    basic_frame.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
+    basic_frame.grid(row=0, column=0, sticky="nsew", padx=10, pady=10, columnspan=2)
 
     # Настройка масштабирования для basic_frame
-    for i in range(6):  # для строк
+    for i in range(4):  # для строк (уменьшено с 6)
         basic_frame.rowconfigure(i, weight=1)
     for i in range(4):  # для столбцов
         basic_frame.columnconfigure(i, weight=1)
@@ -193,7 +193,7 @@ def add_applicant_window(parent, applicants, load_data_callback, logger):
 
     # Создаем метку для обязательных полей
     required_label = tk.Label(basic_frame, text="* - обязательное поле", font=("Arial", 8), fg="red")
-    required_label.grid(row=6, column=0, columnspan=4, sticky="w", pady=(10, 0))
+    required_label.grid(row=4, column=0, columnspan=4, sticky="w", pady=(10, 0))
 
     # ФИО с пометкой обязательного поля
     tk.Label(basic_frame, text="ФИО *", font=("Arial", 9), fg="red").grid(row=0, column=0, sticky="w", pady=5)
@@ -201,52 +201,76 @@ def add_applicant_window(parent, applicants, load_data_callback, logger):
     fio_entry.grid(row=0, column=1, sticky="ew", padx=5, pady=5, columnspan=3)
     create_context_menu(fio_entry, add_window)
 
+    # Учебное заведение с пометкой обязательного поля
+    tk.Label(basic_frame, text="Учебное заведение *", font=("Arial", 9), fg="red").grid(row=1, column=0,
+                                                                                        sticky="w", pady=5)
+    institution_entry = tk.Entry(basic_frame)
+    institution_entry.grid(row=1, column=1, sticky="ew", padx=5, pady=5, columnspan=3)
+    create_context_menu(institution_entry, add_window)
+
+    # Город и Телефон в одной строке
+    tk.Label(basic_frame, text="Город *", font=("Arial", 9), fg="red").grid(row=2, column=0, sticky="w", pady=5)
+    city_entry = tk.Entry(basic_frame)
+    city_entry.grid(row=2, column=1, sticky="ew", padx=5, pady=5)
+    create_context_menu(city_entry, add_window)
+
+    tk.Label(basic_frame, text="Телефон *", font=("Arial", 9), fg="red").grid(row=2, column=2, sticky="w", pady=5,
+                                                                              padx=(20, 0))
+    phone_entry = tk.Entry(basic_frame)
+    phone_entry.grid(row=2, column=3, sticky="ew", padx=5, pady=5)
+    phone_entry.insert(0, "+7-___-___-__-__")
+    phone_entry.bind("<FocusIn>",
+                     lambda e: phone_entry.delete(0, tk.END) if "+7-___-___-__-__" in phone_entry.get() else None)
+    phone_entry.bind("<KeyRelease>", lambda event: format_phone(event, phone_entry))
+    create_context_menu(phone_entry, add_window)
+
+    # Дополнительная информация
+    additional_frame = tk.LabelFrame(form_container, text="ДОПОЛНИТЕЛЬНАЯ ИНФОРМАЦИЯ:", font=("Arial", 12, "bold"),
+                                     padx=10,
+                                     pady=10)
+    additional_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=10)
+
+    # Настройка масштабирования для additional_frame
+    for i in range(7):  # для строк (увеличено)
+        additional_frame.rowconfigure(i, weight=1)
+    for i in range(4):  # для столбцов
+        additional_frame.columnconfigure(i, weight=1)
+    additional_frame.columnconfigure(1, weight=2)
+    additional_frame.columnconfigure(3, weight=2)
+
     # Номер - генерируется автоматически
-    tk.Label(basic_frame, text="Номер", font=("Arial", 9)).grid(row=1, column=0, sticky="w", pady=5)
-    number_entry = tk.Entry(basic_frame)
-    number_entry.grid(row=1, column=1, sticky="ew", padx=5, pady=5)
+    tk.Label(additional_frame, text="Номер", font=("Arial", 9)).grid(row=0, column=0, sticky="w", pady=5)
+    number_entry = tk.Entry(additional_frame)
+    number_entry.grid(row=0, column=1, sticky="ew", padx=5, pady=5)
 
     # Устанавливаем следующий номер и делаем поле неактивным
     next_number = str(len(applicants) + 1)
     number_entry.insert(0, next_number)
     number_entry.config(state="readonly")
 
-    # Код специальности с пометкой обязательного поля
-    tk.Label(basic_frame, text="Код *", font=("Arial", 9), fg="red").grid(row=1, column=2, sticky="w", pady=5)
-    code_entry = tk.Entry(basic_frame)
-    code_entry.grid(row=1, column=3, sticky="ew", padx=5, pady=5)
+    # Код специальности
+    tk.Label(additional_frame, text="Код", font=("Arial", 9)).grid(row=0, column=2, sticky="w", pady=5, padx=(20, 0))
+    code_entry = tk.Entry(additional_frame)
+    code_entry.grid(row=0, column=3, sticky="ew", padx=5, pady=5)
     create_context_menu(code_entry, add_window)
 
-    # Рейтинг с пометкой обязательного поля
-    tk.Label(basic_frame, text="Рейтинг *", font=("Arial", 9), fg="red").grid(row=2, column=0, sticky="w", pady=5)
-    rating_entry = tk.Entry(basic_frame)
-    rating_entry.grid(row=2, column=1, sticky="ew", padx=5, pady=5)
+    # Рейтинг со значением по умолчанию 0
+    tk.Label(additional_frame, text="Рейтинг", font=("Arial", 9)).grid(row=1, column=0, sticky="w", pady=5)
+    rating_entry = tk.Entry(additional_frame)
+    rating_entry.grid(row=1, column=1, sticky="ew", padx=5, pady=5)
+    rating_entry.insert(0, "0")  # Устанавливаем значение по умолчанию
     create_context_menu(rating_entry, add_window)
 
-    # Льгота с пометкой обязательного поля
-    tk.Label(basic_frame, text="Льгота *", font=("Arial", 9), fg="red").grid(row=2, column=2, sticky="w", pady=5)
-    benefits_entry = tk.Entry(basic_frame)
-    benefits_entry.grid(row=2, column=3, sticky="ew", padx=5, pady=5)
+    # Льгота
+    tk.Label(additional_frame, text="Льгота", font=("Arial", 9)).grid(row=1, column=2, sticky="w", pady=5, padx=(20, 0))
+    benefits_entry = tk.Entry(additional_frame)
+    benefits_entry.grid(row=1, column=3, sticky="ew", padx=5, pady=5)
     create_context_menu(benefits_entry, add_window)
 
-    # Оригинал документов и Дата подачи в одной строке
-    frame_row3 = tk.Frame(basic_frame)
-    frame_row3.grid(row=3, column=0, columnspan=4, sticky="ew")
-    frame_row3.columnconfigure(0, weight=1)
-    frame_row3.columnconfigure(1, weight=1)
-    frame_row3.columnconfigure(2, weight=1)
-    frame_row3.columnconfigure(3, weight=1)
-
-    tk.Label(frame_row3, text="Оригинал", font=("Arial", 9)).grid(row=0, column=0, sticky="w", pady=5)
-    original_var = tk.BooleanVar()
-    original_check = tk.Checkbutton(frame_row3, text="Да", variable=original_var)
-    original_check.grid(row=0, column=1, sticky="w", padx=5, pady=5)
-
-    # Дата подачи с пометкой обязательного поля, лучше выровненная
-    tk.Label(frame_row3, text="Дата подачи *", font=("Arial", 9), fg="red").grid(row=0, column=2, sticky="w",
-                                                                                  pady=5, padx=(20, 0))
-    submission_date_entry = tk.Entry(frame_row3)
-    submission_date_entry.grid(row=0, column=3, sticky="ew", padx=5, pady=5)
+    # Дата подачи и Оригинал документов в одной строке
+    tk.Label(additional_frame, text="Дата подачи", font=("Arial", 9)).grid(row=2, column=0, sticky="w", pady=5)
+    submission_date_entry = tk.Entry(additional_frame)
+    submission_date_entry.grid(row=2, column=1, sticky="ew", padx=5, pady=5)
     create_context_menu(submission_date_entry, add_window)
 
     # Подсказка для даты
@@ -257,40 +281,16 @@ def add_applicant_window(parent, applicants, load_data_callback, logger):
     # Привязка функции форматирования к полям даты
     submission_date_entry.bind("<KeyRelease>", lambda event: format_date(event, submission_date_entry))
 
-    # Учебное заведение с пометкой обязательного поля
-    tk.Label(basic_frame, text="Учебное заведение *", font=("Arial", 9), fg="red").grid(row=4, column=0,
-                                                                                         sticky="w", pady=5)
-    institution_entry = tk.Entry(basic_frame)
-    institution_entry.grid(row=4, column=1, sticky="ew", padx=5, pady=5, columnspan=3)
-    create_context_menu(institution_entry, add_window)
-
-    # Город с пометкой обязательного поля
-    tk.Label(basic_frame, text="Город *", font=("Arial", 9), fg="red").grid(row=5, column=0, sticky="w", pady=5)
-    city_entry = tk.Entry(basic_frame)
-    city_entry.grid(row=5, column=1, sticky="ew", padx=5, pady=5)
-    create_context_menu(city_entry, add_window)
-
-    # Общежитие
-    tk.Label(basic_frame, text="Общежитие", font=("Arial", 9)).grid(row=5, column=2, sticky="w", pady=5)
-    dormitory_var = tk.BooleanVar()
-    dormitory_check = tk.Checkbutton(basic_frame, text="", variable=dormitory_var)
-    dormitory_check.grid(row=5, column=3, sticky="w", padx=5, pady=5)
-
-    # Дополнительная информация
-    additional_frame = tk.LabelFrame(form_container, text="ДОПОЛНИТЕЛЬНО:", font=("Arial", 12, "bold"), padx=10,
-                                     pady=10)
-    additional_frame.grid(row=0, column=1, sticky="nsew", padx=10, pady=10)
-
-    # Настройка масштабирования для additional_frame
-    for i in range(6):  # для строк
-        additional_frame.rowconfigure(i, weight=1)
-    additional_frame.columnconfigure(0, weight=2)  # Увеличиваем вес для меток
-    additional_frame.columnconfigure(1, weight=2)  # Уменьшаем вес для полей ввода
+    tk.Label(additional_frame, text="Оригинал", font=("Arial", 9)).grid(row=2, column=2, sticky="w", pady=5,
+                                                                        padx=(20, 0))
+    original_var = tk.BooleanVar()
+    original_check = tk.Checkbutton(additional_frame, text="Да", variable=original_var)
+    original_check.grid(row=2, column=3, sticky="w", padx=5, pady=5)
 
     # Дата посещения
-    tk.Label(additional_frame, text="Дата посещения", font=("Arial", 9)).grid(row=0, column=0, sticky="w", pady=5, padx=(0, 5))
+    tk.Label(additional_frame, text="Дата посещения", font=("Arial", 9)).grid(row=3, column=0, sticky="w", pady=5)
     visit_date_entry = tk.Entry(additional_frame)
-    visit_date_entry.grid(row=0, column=1, sticky="ew", padx=5, pady=5)
+    visit_date_entry.grid(row=3, column=1, sticky="ew", padx=5, pady=5)
     create_context_menu(visit_date_entry, add_window)
 
     # Подсказка для даты посещения
@@ -299,56 +299,52 @@ def add_applicant_window(parent, applicants, load_data_callback, logger):
                                                                          tk.END) if visit_date_entry.get() == "ДД.ММ.ГГГГ" else None)
     visit_date_entry.bind("<KeyRelease>", lambda event: format_date(event, visit_date_entry))
 
+    # Общежитие
+    tk.Label(additional_frame, text="Общежитие", font=("Arial", 9)).grid(row=3, column=2, sticky="w", pady=5,
+                                                                         padx=(20, 0))
+    dormitory_var = tk.BooleanVar()
+    dormitory_check = tk.Checkbutton(additional_frame, text="Да", variable=dormitory_var)
+    dormitory_check.grid(row=3, column=3, sticky="w", padx=5, pady=5)
+
     # Откуда узнал/а
-    tk.Label(additional_frame, text="Откуда узнал/а", font=("Arial", 9)).grid(row=1, column=0, sticky="w", pady=5, padx=(0, 5))
+    tk.Label(additional_frame, text="Откуда узнал/а", font=("Arial", 9)).grid(row=4, column=0, sticky="w", pady=5)
     info_source_entry = tk.Entry(additional_frame)
-    info_source_entry.grid(row=1, column=1, sticky="ew", padx=5, pady=5)
+    info_source_entry.grid(row=4, column=1, sticky="ew", padx=5, pady=5, columnspan=3)
     create_context_menu(info_source_entry, add_window)
 
     # Примечание
-    tk.Label(additional_frame, text="Примечание", font=("Arial", 9)).grid(row=2, column=0, sticky="w", pady=5, padx=(0, 5))
-    notes_text = tk.Text(additional_frame, height=8)
-    notes_text.grid(row=2, column=1, rowspan=4, sticky="nsew", padx=5, pady=5)
+    tk.Label(additional_frame, text="Примечание", font=("Arial", 9)).grid(row=5, column=0, sticky="nw", pady=5)
+    notes_text = tk.Text(additional_frame, height=3)
+    notes_text.grid(row=5, column=1, rowspan=2, sticky="nsew", padx=5, pady=5, columnspan=3)
     create_context_menu(notes_text, add_window)
 
-    # Контактная информация
-    contact_frame = tk.LabelFrame(form_container, text="КОНТАКТНАЯ ИНФОРМАЦИЯ:", font=("Arial", 12, "bold"),
+    # Контактная информация родителей
+    contact_frame = tk.LabelFrame(form_container, text="КОНТАКТНАЯ ИНФОРМАЦИЯ РОДИТЕЛЕЙ:", font=("Arial", 12, "bold"),
                                   padx=10, pady=10)
-    contact_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=10, columnspan=2)
+    contact_frame.grid(row=1, column=1, sticky="nsew", padx=10, pady=10)
 
     # Настройка масштабирования для contact_frame
     for i in range(4):  # для строк
         contact_frame.rowconfigure(i, weight=1)
     contact_frame.columnconfigure(0, weight=1)
-    contact_frame.columnconfigure(1, weight=5)  # Увеличиваем вес для полей ввода
-
-    # Телефон с пометкой обязательного поля
-    tk.Label(contact_frame, text="Телефон *", font=("Arial", 9), fg="red").grid(row=0, column=0, sticky="w",
-                                                                                 pady=5)
-    phone_entry = tk.Entry(contact_frame)
-    phone_entry.grid(row=0, column=1, sticky="ew", padx=5, pady=5)
-    phone_entry.insert(0, "+7-___-___-__-__")
-    phone_entry.bind("<FocusIn>",
-                     lambda e: phone_entry.delete(0, tk.END) if "+7-___-___-__-__" in phone_entry.get() else None)
-    phone_entry.bind("<KeyRelease>", lambda event: format_phone(event, phone_entry))
-    create_context_menu(phone_entry, add_window)
+    contact_frame.columnconfigure(1, weight=2)
 
     # Профиль ВК
-    tk.Label(contact_frame, text="Профиль ВК", font=("Arial", 9)).grid(row=1, column=0, sticky="w", pady=5)
+    tk.Label(contact_frame, text="Профиль ВК", font=("Arial", 9)).grid(row=0, column=0, sticky="w", pady=5)
     vk_entry = tk.Entry(contact_frame)
-    vk_entry.grid(row=1, column=1, sticky="ew", padx=5, pady=5)
+    vk_entry.grid(row=0, column=1, sticky="ew", padx=5, pady=5)
     create_context_menu(vk_entry, add_window)
 
     # Родитель
-    tk.Label(contact_frame, text="Родитель", font=("Arial", 9)).grid(row=2, column=0, sticky="w", pady=5)
+    tk.Label(contact_frame, text="Родитель", font=("Arial", 9)).grid(row=1, column=0, sticky="w", pady=5)
     parent_entry = tk.Entry(contact_frame)
-    parent_entry.grid(row=2, column=1, sticky="ew", padx=5, pady=5)
+    parent_entry.grid(row=1, column=1, sticky="ew", padx=5, pady=5)
     create_context_menu(parent_entry, add_window)
 
     # Телефон родителя
-    tk.Label(contact_frame, text="Телефон родителя", font=("Arial", 9)).grid(row=3, column=0, sticky="w", pady=5)
+    tk.Label(contact_frame, text="Телефон родителя", font=("Arial", 9)).grid(row=2, column=0, sticky="w", pady=5)
     parent_phone_entry = tk.Entry(contact_frame)
-    parent_phone_entry.grid(row=3, column=1, sticky="ew", padx=5, pady=5)
+    parent_phone_entry.grid(row=2, column=1, sticky="ew", padx=5, pady=5)
     parent_phone_entry.insert(0, "+7-___-___-__-__")
     parent_phone_entry.bind("<FocusIn>", lambda e: parent_phone_entry.delete(0,
                                                                              tk.END) if "+7-___-___-__-__" in parent_phone_entry.get() else None)
@@ -367,22 +363,6 @@ def add_applicant_window(parent, applicants, load_data_callback, logger):
                 messagebox.showerror("Ошибка", "Поле ФИО не может быть пустым")
                 return
 
-            if not code_entry.get().strip():
-                messagebox.showerror("Ошибка", "Поле Код не может быть пустым")
-                return
-
-            if not rating_entry.get().strip():
-                messagebox.showerror("Ошибка", "Поле Рейтинг не может быть пустым")
-                return
-
-            if not benefits_entry.get().strip():
-                messagebox.showerror("Ошибка", "Поле Льгота не может быть пустым")
-                return
-
-            if not submission_date_entry.get().strip() or submission_date_entry.get() == "ДД.ММ.ГГГГ":
-                messagebox.showerror("Ошибка", "Поле Дата подачи не может быть пустым")
-                return
-
             if not institution_entry.get().strip():
                 messagebox.showerror("Ошибка", "Поле Учебное заведение не может быть пустым")
                 return
@@ -396,13 +376,15 @@ def add_applicant_window(parent, applicants, load_data_callback, logger):
                 return
 
             try:
-                rating = float(rating_entry.get().strip())
+                rating = float(rating_entry.get().strip()) if rating_entry.get().strip() else 0.0
             except ValueError:
                 messagebox.showerror("Ошибка", "Рейтинг должен быть числом")
                 return
 
             current_date = datetime.now().date()
 
+            # Дата подачи теперь необязательное поле
+            submission_date = None
             if submission_date_entry.get() and submission_date_entry.get() != "ДД.ММ.ГГГГ":
                 try:
                     submission_date_str = submission_date_entry.get()
@@ -415,9 +397,6 @@ def add_applicant_window(parent, applicants, load_data_callback, logger):
                 except ValueError:
                     messagebox.showerror("Ошибка", "Неправильный формат даты подачи (ДД.ММ.ГГГГ)")
                     return
-            else:
-                messagebox.showerror("Ошибка", "Поле Дата подачи не может быть пустым")
-                return
 
             visit_date = None
             if visit_date_entry.get() and visit_date_entry.get() != "ДД.ММ.ГГГГ":
@@ -438,8 +417,8 @@ def add_applicant_window(parent, applicants, load_data_callback, logger):
                 code=code_entry.get(),
                 rating=rating,
                 has_original=original_var.get(),
-                benefits=benefits_entry.get(),
-                submission_date=submission_date
+                benefits=benefits_entry.get() if benefits_entry.get().strip() else None,
+                submission_date=submission_date  # Может быть None
             )
 
             education = EducationalBackground(

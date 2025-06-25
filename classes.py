@@ -54,9 +54,8 @@ class Parent:
 
 
 class EducationalBackground:
-    def __init__(self, institution: str, average_score: Optional[float] = None):
+    def __init__(self, institution: str):
         self.institution = institution
-        self.average_score = average_score
 
 class ContactInfo:
     def __init__(self, phone: str, vk: Optional[str] = None):
