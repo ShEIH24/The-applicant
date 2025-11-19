@@ -7,7 +7,7 @@ from pandas.plotting import table
 from classes import *
 from logger import Logger
 from app_add_applicant import add_applicant_window, parse_full_name
-from app_edit_applicant import ApplicantEditForm
+from app_edit_applicant import edit_applicant_window
 
 
 class ApplicantTableWindow:
@@ -189,21 +189,15 @@ class ApplicantTableWindow:
             self.logger.warning("Попытка импорта из БД без подключения")
             return
 
-        # Проверяем, есть ли данные в памяти
-        if self.applicants:
-            choice = messagebox.askyesnocancel(
-                "Режим импорта из БД",
-                f"В памяти уже есть {len(self.applicants)} записей.\n\n"
-                "Да - Заменить все данные данными из БД\n"
-                "Нет - Добавить данные из БД к существующим\n"
-                "Отмена - Отменить импорт"
+        # ИЗМЕНЕНО: Если данные уже загружены из БД при старте, предупреждаем
+        if len(self.applicants) > 0:
+            messagebox.showinfo(
+                "Информация",
+                "Данные уже загружены из базы данных при запуске приложения.\n\n"
+                "Используйте кнопку 'Обновить' для синхронизации с БД."
             )
-
-            if choice is None:  # Отмена
-                self.logger.info("Импорт из БД отменен пользователем")
-                return
-        else:
-            choice = True  # Если данных нет, просто загружаем
+            self.logger.info("Попытка повторного импорта из БД отклонена")
+            return
 
         try:
             self.logger.info("Начало импорта из БД")
@@ -214,35 +208,17 @@ class ApplicantTableWindow:
                 self.logger.info("БД не содержит записей")
                 return
 
-            if choice:  # Заменить
-                self.applicants.clear()
-                self.applicants.extend(loaded_applicants)
-                message = f"Загружено {len(loaded_applicants)} записей из БД"
-                self.logger.info(message)
-            else:  # Добавить
-                # Проверяем дубликаты по номеру (ID)
-                existing_numbers = {a.get_number() for a in self.applicants}
-                new_count = 0
-                duplicate_count = 0
-
-                for applicant in loaded_applicants:
-                    if applicant.get_number() not in existing_numbers:
-                        self.applicants.append(applicant)
-                        existing_numbers.add(applicant.get_number())
-                        new_count += 1
-                    else:
-                        duplicate_count += 1
-
-                if duplicate_count > 0:
-                    message = (f"Добавлено {new_count} новых записей из БД.\n"
-                               f"Пропущено дубликатов: {duplicate_count}")
-                else:
-                    message = f"Добавлено {new_count} новых записей из БД"
-
-                self.logger.info(message)
+            self.applicants.clear()
+            self.applicants.extend(loaded_applicants)
+            message = f"Загружено {len(loaded_applicants)} записей из БД"
+            self.logger.info(message)
 
             # Обновляем таблицу
             self.load_data()
+
+            # Отключаем кнопку после успешного импорта
+            self.import_db_button.config(state="disabled", bg="#9e9e9e")
+
             messagebox.showinfo("Импорт из БД", message)
 
         except Exception as e:
@@ -321,6 +297,11 @@ class ApplicantTableWindow:
                                           text="Импорт из БД", width=12,
                                           command=self.import_from_database)
         self.import_db_button.grid(row=0, column=7, padx=5)
+
+        # Если БД подключена и данные уже загружены, делаем кнопку неактивной
+        if self.db_manager and self.db_manager.connection and len(self.applicants) > 0:
+            self.import_db_button.config(state="disabled", bg="#9e9e9e")
+            self.logger.info("Кнопка 'Импорт из БД' отключена - данные уже загружены из БД")
 
         # Поле поиска
         search_frame = tk.Frame(self.parent)
@@ -600,24 +581,15 @@ class ApplicantTableWindow:
             self.logger.warning("Попытка редактирования без выбора абитуриента")
             return
 
-        def save_to_db_callback():
-            if self.db_manager and self.db_manager.connection:
-                try:
-                    self.db_manager.update_applicant(self.selected_applicant)
-                    self.logger.info(f"Изменения сохранены в БД для: {self.selected_applicant.get_full_name()}")
-                except Exception as e:
-                    self.logger.error(f"Ошибка сохранения изменений в БД: {e}")
-                    messagebox.showerror("Ошибка БД", f"Не удалось сохранить изменения в БД:\n{str(e)}")
-            self.refresh_data()
+        from app_edit_applicant import edit_applicant_window
 
-        # Создаем и показываем форму редактирования
-        edit_form = ApplicantEditForm(
+        edit_applicant_window(
             parent=self.parent,
             selected_applicant=self.selected_applicant,
-            on_save_callback=save_to_db_callback,
-            logger=self.logger
+            load_data_callback=self.load_data,
+            logger=self.logger,
+            db_manager=self.db_manager
         )
-        edit_form.show()
 
     def renumber_applicants(self):
         """Перенумерация абитуриентов и всех связанных таблиц после удаления"""

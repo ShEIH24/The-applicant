@@ -524,6 +524,142 @@ class DatabaseManager:
             self.connection.rollback()
             raise
 
+    def update_applicant(self, applicant: Applicant) -> bool:
+        """Обновить данные абитуриента в БД"""
+        try:
+            cursor = self.connection.cursor()
+
+            # Получаем ID абитуриента
+            id_applicant = int(applicant.application_details.number)
+
+            # Получаем или создаем ID учебного заведения
+            id_education = self.get_or_create_education(applicant.education.institution)
+
+            # Обработка родителя
+            id_parent = None
+            if applicant.parent:
+                # Проверяем, есть ли уже родитель у абитуриента
+                cursor.execute("""
+                               SELECT id_parent
+                               FROM Applicant
+                               WHERE id_applicant = ?
+                               """, (id_applicant,))
+                row = cursor.fetchone()
+
+                if row and row[0]:
+                    # Обновляем существующего родителя
+                    id_parent = row[0]
+                    cursor.execute("""
+                                   UPDATE Parent
+                                   SET name     = ?,
+                                       phone    = ?,
+                                       relation = ?
+                                   WHERE id_parent = ?
+                                   """, (applicant.parent.parent_name, applicant.parent.phone,
+                                         applicant.parent.relation if hasattr(applicant.parent,
+                                                                              'relation') else "Родитель",
+                                         id_parent))
+                else:
+                    # Создаем нового родителя
+                    id_parent = self.add_parent(applicant.parent)
+            else:
+                # Если родитель удален, устанавливаем NULL
+                cursor.execute("""
+                               SELECT id_parent
+                               FROM Applicant
+                               WHERE id_applicant = ?
+                               """, (id_applicant,))
+                row = cursor.fetchone()
+                if row and row[0]:
+                    # Удаляем связь с родителем
+                    id_parent = None
+
+            # Обновляем основную информацию абитуриента
+            cursor.execute("""
+                           UPDATE Applicant
+                           SET last_name    = ?,
+                               first_name   = ?,
+                               patronymic   = ?,
+                               city         = ?,
+                               phone        = ?,
+                               id_education = ?,
+                               id_parent    = ?
+                           WHERE id_applicant = ?
+                           """, (applicant.last_name, applicant.first_name, applicant.patronymic,
+                                 applicant.city, applicant.phone, id_education, id_parent, id_applicant))
+
+            # Получаем ID специальности
+            id_specialty = self.get_or_create_specialty(applicant.application_details.code)
+
+            # Вычисляем итоговый рейтинг с баллами
+            benefit_points = 0
+            if applicant.application_details.benefits:
+                benefit_points = self.get_benefit_points(applicant.application_details.benefits)
+
+            total_rating = applicant.application_details.rating + benefit_points
+
+            # Обновляем Application_details
+            cursor.execute("""
+                           UPDATE Application_details
+                           SET id_specialty    = ?,
+                               rating          = ?,
+                               has_original    = ?,
+                               submission_date = ?
+                           WHERE id_applicant = ?
+                           """, (id_specialty, total_rating, applicant.application_details.has_original,
+                                 applicant.application_details.submission_date, id_applicant))
+
+            # Обновляем связь с льготами
+            # Сначала удаляем старые связи
+            cursor.execute("""
+                           DELETE
+                           FROM Applicant_benefit
+                           WHERE id_applicant = ?
+                           """, (id_applicant,))
+
+            # Добавляем новую связь, если есть льгота
+            if applicant.application_details.benefits:
+                id_benefit = self.get_or_create_benefit(
+                    applicant.application_details.benefits,
+                    applicant.application_details.bonus_points
+                )
+                cursor.execute("""
+                               INSERT INTO Applicant_benefit (id_applicant, id_benefit)
+                               VALUES (?, ?)
+                               """, (id_applicant, id_benefit))
+
+            # Получаем ID источника информации
+            id_source = self.get_or_create_information_source(
+                applicant.additional_info.information_source
+            )
+
+            # Обновляем Additional_info
+            cursor.execute("""
+                           UPDATE Additional_info
+                           SET department_visit = ?,
+                               notes            = ?,
+                               id_source        = ?,
+                               dormitory_needed = ?
+                           WHERE id_applicant = ?
+                           """, (applicant.additional_info.department_visit,
+                                 applicant.additional_info.notes,
+                                 id_source,
+                                 applicant.additional_info.dormitory_needed,
+                                 id_applicant))
+
+            self.connection.commit()
+            self.logger.info(f"Абитуриент {applicant.get_full_name()} успешно обновлен в БД (ID: {id_applicant})")
+            return True
+
+        except pyodbc.Error as e:
+            self.logger.error(f"Ошибка обновления абитуриента в БД: {e}")
+            self.connection.rollback()
+            raise
+        except Exception as e:
+            self.logger.error(f"Неожиданная ошибка при обновлении абитуриента: {e}")
+            self.connection.rollback()
+            raise
+
     def load_all_applicants(self) -> List[Applicant]:
         """Загрузить всех абитуриентов из БД"""
         try:
