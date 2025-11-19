@@ -2,10 +2,23 @@ from abc import ABC, abstractmethod
 from typing import Optional, List
 from datetime import date, datetime
 
+
 # Интерфейсы
 class IPersonalData(ABC):
     @abstractmethod
     def get_full_name(self) -> str:
+        pass
+
+    @abstractmethod
+    def get_last_name(self) -> str:
+        pass
+
+    @abstractmethod
+    def get_first_name(self) -> str:
+        pass
+
+    @abstractmethod
+    def get_patronymic(self) -> Optional[str]:
         pass
 
     @abstractmethod
@@ -38,19 +51,32 @@ class IApplicationData(ABC):
     def get_benefits(self) -> Optional[str]:
         pass
 
+
 # Основные классы
 class Person:
-    def __init__(self, full_name: str, phone: str, city: str = None):
-        self.full_name = full_name
+    def __init__(self, last_name: str, first_name: str, patronymic: Optional[str] = None,
+                 phone: str = None, city: str = None):
+        self.last_name = last_name
+        self.first_name = first_name
+        self.patronymic = patronymic
         self.phone = phone
         self.city = city
 
+    def get_full_name(self) -> str:
+        """Возвращает полное ФИО"""
+        if self.patronymic:
+            return f"{self.last_name} {self.first_name} {self.patronymic}"
+        return f"{self.last_name} {self.first_name}"
+
 
 class Parent:
-    def __init__(self, full_name: str, phone: str, relation: str = "Родитель"):
-        self.full_name = full_name
+    def __init__(self, parent_name: str, phone: str = None, relation: str = 'Родитель'):
+        self.parent_name = parent_name
         self.phone = phone
         self.relation = relation
+
+    def get_full_name(self) -> str:
+        return self.parent_name
 
 
 class EducationalBackground:
@@ -58,20 +84,29 @@ class EducationalBackground:
         self.institution = institution
         self.average_score = average_score
 
+
 class ContactInfo:
     def __init__(self, phone: str, vk: Optional[str] = None):
         self.phone = phone
         self.vk = vk
 
+
 class ApplicationDetails:
     def __init__(self, number: str, code: str, rating: float, has_original: bool = False,
-                 benefits: Optional[str] = None, submission_date: date = None):
+                 benefits: Optional[str] = None, submission_date: date = None,
+                 form_of_education: str = 'Очная', bonus_points: int = 0):
         self.number = number
         self.code = code
         self.rating = rating
         self.has_original = has_original
         self.benefits = benefits
         self.submission_date = submission_date
+        self.form_of_education = form_of_education
+        self.bonus_points = bonus_points
+
+    def get_total_rating(self):
+        """Получить итоговый рейтинг (базовый рейтинг + бонусные баллы)"""
+        return self.rating + self.bonus_points
 
     def get_submission_date_formatted(self) -> str:
         """Возвращает дату подачи в формате ДД.ММ.ГГГГ"""
@@ -86,6 +121,7 @@ class ApplicationDetails:
                 # Если это строка или другой тип
                 return str(self.submission_date)
         return ""
+
 
 class AdditionalInfo:
     def __init__(self,
@@ -107,7 +143,9 @@ class AdditionalInfo:
 
 class Applicant(Person, IPersonalData, IApplicationData):
     def __init__(self,
-                 full_name: str,
+                 last_name: str,
+                 first_name: str,
+                 patronymic: Optional[str],
                  phone: str,
                  city: str,
                  application_details: ApplicationDetails,
@@ -115,7 +153,7 @@ class Applicant(Person, IPersonalData, IApplicationData):
                  contact_info: Optional[ContactInfo] = None,
                  additional_info: Optional[AdditionalInfo] = None,
                  parent: Optional[Parent] = None):
-        super().__init__(full_name, phone, city)
+        super().__init__(last_name, first_name, patronymic, phone, city)
         self.application_details = application_details
         self.education = education
         self.contact_info = contact_info or ContactInfo(phone)
@@ -123,8 +161,14 @@ class Applicant(Person, IPersonalData, IApplicationData):
         self.parent = parent
 
     # Реализация методов интерфейсов
-    def get_full_name(self) -> str:
-        return self.full_name
+    def get_last_name(self) -> str:
+        return self.last_name
+
+    def get_first_name(self) -> str:
+        return self.first_name
+
+    def get_patronymic(self) -> Optional[str]:
+        return self.patronymic
 
     def get_phone(self) -> str:
         return self.phone
@@ -146,6 +190,7 @@ class Applicant(Person, IPersonalData, IApplicationData):
 
     def get_benefits(self) -> Optional[str]:
         return self.application_details.benefits
+
 
 class ApplicantRegistry:
     def __init__(self):
@@ -178,4 +223,5 @@ class ApplicantRegistry:
         return [a for a in self.applicants if a.additional_info.dormitory_needed]
 
     def get_dormitory_requests_by_city(self, city: str) -> List[Applicant]:
-        return [a for a in self.applicants if a.get_city().lower() == city.lower() and a.additional_info.dormitory_needed]
+        return [a for a in self.applicants if
+                a.get_city().lower() == city.lower() and a.additional_info.dormitory_needed]

@@ -1,104 +1,24 @@
 """app_add_applicant.py"""
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import messagebox, ttk
 from classes import *
+from datetime import datetime
 
-def create_context_menu(widget, parent_window):
-    """Создаёт контекстное меню для копирования, вставки и вырезания"""
-    popup_menu = tk.Menu(widget, tearoff=0)
 
-    # Функции для работы с буфером обмена
-    def copy_to_clipboard():
+def create_context_menu(widget, parent):
+    """Создание контекстного меню для виджета"""
+    context_menu = tk.Menu(widget, tearoff=0)
+    context_menu.add_command(label="Вырезать", command=lambda: widget.event_generate("<<Cut>>"))
+    context_menu.add_command(label="Копировать", command=lambda: widget.event_generate("<<Copy>>"))
+    context_menu.add_command(label="Вставить", command=lambda: widget.event_generate("<<Paste>>"))
+
+    def show_context_menu(event):
         try:
-            # Проверяем, является ли виджет текстовым полем
-            if isinstance(widget, tk.Text):
-                selected_text = widget.get("sel.first", "sel.last")
-                parent_window.clipboard_clear()
-                parent_window.clipboard_append(selected_text)
-            else:  # Entry widget
-                parent_window.clipboard_clear()
-                parent_window.clipboard_append(widget.selection_get())
-        except tk.TclError:
-            pass  # Нет выделенного текста
-
-    def cut_to_clipboard():
-        try:
-            if isinstance(widget, tk.Text):
-                selected_text = widget.get("sel.first", "sel.last")
-                parent_window.clipboard_clear()
-                parent_window.clipboard_append(selected_text)
-                widget.delete("sel.first", "sel.last")
-            else:  # Entry widget
-                parent_window.clipboard_clear()
-                parent_window.clipboard_append(widget.selection_get())
-                widget.delete(tk.SEL_FIRST, tk.SEL_LAST)
-        except tk.TclError:
-            pass  # Нет выделенного текста
-
-    def paste_from_clipboard():
-        try:
-            clipboard_text = parent_window.clipboard_get()
-            if isinstance(widget, tk.Text):
-                try:
-                    widget.delete("sel.first", "sel.last")
-                except tk.TclError:
-                    pass  # Нет выделенного текста
-                widget.insert(tk.INSERT, clipboard_text)
-            else:  # Entry widget
-                try:
-                    widget.delete(tk.SEL_FIRST, tk.SEL_LAST)
-                except tk.TclError:
-                    pass  # Нет выделенного текста
-                widget.insert(tk.INSERT, clipboard_text)
-        except:
-            pass  # Буфер обмена пуст
-
-    def select_all():
-        try:
-            if isinstance(widget, tk.Text):
-                widget.tag_add(tk.SEL, "1.0", tk.END)
-                widget.mark_set(tk.INSERT, "1.0")
-                widget.see(tk.INSERT)
-                return 'break'
-            else:  # Entry widget
-                widget.select_range(0, tk.END)
-                widget.icursor(tk.END)
-                return 'break'
-        except:
-            pass
-
-    # Добавляем пункты меню - ВАЖНО: это должно быть вне обработчика исключений!
-    popup_menu.add_command(label="Копировать", command=copy_to_clipboard)
-    popup_menu.add_command(label="Вырезать", command=cut_to_clipboard)
-    popup_menu.add_command(label="Вставить", command=paste_from_clipboard)
-    popup_menu.add_command(label="Выделить всё", command=select_all)
-
-    # Функция для показа контекстного меню
-    def show_popup_menu(event):
-        try:
-            popup_menu.tk_popup(event.x_root, event.y_root, 0)
+            context_menu.tk_popup(event.x_root, event.y_root)
         finally:
-            popup_menu.grab_release()
+            context_menu.grab_release()
 
-    # Привязываем правый клик мыши к показу меню
-    widget.bind("<Button-3>", show_popup_menu)  # Правая кнопка мыши
-
-    # Привязываем горячие клавиши
-    widget.bind("<Control-c>", lambda e: copy_to_clipboard())
-    widget.bind("<Control-x>", lambda e: cut_to_clipboard())
-    widget.bind("<Control-v>", lambda e: paste_from_clipboard())
-    widget.bind("<Control-a>", lambda e: select_all())
-
-    # Для Ctrl+Z и Ctrl+Y используем встроенные возможности Tkinter
-    if isinstance(widget, tk.Text):
-        # Для текстовых виджетов
-        widget.bind("<Control-z>", lambda e: widget.edit_undo())
-        widget.bind("<Control-y>", lambda e: widget.edit_redo())
-    else:
-        # Для Entry виджетов нет встроенной поддержки undo/redo
-        # Можно реализовать историю изменений, но здесь используем стандартные
-        # бинды для поддержки совместимости с системными правилами
-        pass
+    widget.bind("<Button-3>", show_context_menu)
 
 
 def format_date(event=None, entry=None):
@@ -146,17 +66,96 @@ def format_phone(event=None, entry=None):
     entry.insert(0, formatted)
 
 
-def add_applicant_window(parent, applicants, load_data_callback, logger):
+def parse_full_name(full_name: str) -> tuple:
+    """
+    Разбирает полное имя на фамилию, имя и отчество
+    Возвращает кортеж (фамилия, имя, отчество)
+    """
+    parts = full_name.strip().split()
+
+    if len(parts) >= 3:
+        return parts[0], parts[1], parts[2]
+    elif len(parts) == 2:
+        return parts[0], parts[1], None
+    elif len(parts) == 1:
+        return parts[0], "", None
+    else:
+        return "", "", None
+
+
+def add_applicant_window(parent, applicants, load_data_callback, logger, db_manager=None):
     """Открывает окно для добавления нового абитуриента"""
+    logger.info("Открытие формы добавления абитуриента")
+
+    # ДОБАВЛЕНО: Загрузка справочных данных из БД
+    benefits_data = {}
+    info_source_options = []
+
+    if db_manager and db_manager.connection:
+        try:
+            benefits_data = db_manager.get_all_benefits()
+            info_source_options = db_manager.get_all_information_sources()
+
+            # Если справочники пустые, инициализируем их
+            if not benefits_data:
+                db_manager.initialize_reference_data()
+                benefits_data = db_manager.get_all_benefits()
+                info_source_options = db_manager.get_all_information_sources()
+        except Exception as e:
+            logger.error(f"Ошибка загрузки справочных данных: {e}")
+
+    # Если не удалось загрузить из БД, используем значения по умолчанию
+    if not benefits_data:
+        benefits_data = {
+            "Без льгот": 0,
+            "Сирота": 10,
+            "Инвалид I группы": 10,
+            "Инвалид II группы": 8,
+            "Инвалид III группы": 5,
+            "Участник СВО": 10,
+            "Ребенок участника СВО": 8,
+            "Ребенок погибшего участника СВО": 10,
+            "Многодетная семья": 3,
+            "Целевое обучение": 5,
+            "Отличник (аттестат с отличием)": 5,
+            "Золотая медаль": 10,
+            "Серебряная медаль": 7,
+            "Победитель олимпиады (всероссийская)": 10,
+            "Призер олимпиады (всероссийская)": 8,
+            "Победитель олимпиады (региональная)": 5,
+            "Призер олимпиады (региональная)": 3,
+            "ГТО (золотой знак)": 5,
+            "ГТО (серебряный знак)": 3,
+            "ГТО (бронзовый знак)": 2,
+            "Волонтер (более 100 часов)": 3,
+            "Спортивные достижения (КМС и выше)": 5,
+            "Творческие достижения (лауреат)": 3
+        }
+
+    if not info_source_options:
+        info_source_options = [
+            "Сайт учебного заведения",
+            "Социальные сети",
+            "Рекомендация друзей/знакомых",
+            "Рекламные материалы",
+            "День открытых дверей",
+            "Ярмарка образования",
+            "Поисковые системы (Google, Яндекс)",
+            "Рекомендация учителей/родителей",
+            "СМИ (газеты, телевидение)",
+            "Другое"
+        ]
+
+    # Создаем всплывающее окно
     logger.info("Открытие формы добавления абитуриента")
 
     # Создаем всплывающее окно
     add_window = tk.Toplevel(parent)
     add_window.title("Добавление абитуриента")
-    add_window.geometry("1400x650")
+    add_window.geometry("1400x750")
     add_window.resizable(True, True)
-    add_window.minsize(1400, 650)
-    add_window.grab_set()  # Делаем окно модальным
+    add_window.minsize(1400, 750)
+    add_window.grab_set()
 
     # Применяем стиль заголовка
     header_frame = tk.Frame(add_window, bg="#3f51b5", height=70)
@@ -184,68 +183,128 @@ def add_applicant_window(parent, applicants, load_data_callback, logger):
     basic_frame.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
 
     # Настройка масштабирования для basic_frame
-    for i in range(6):  # для строк
+    for i in range(9):
         basic_frame.rowconfigure(i, weight=1)
-    for i in range(4):  # для столбцов
+
+    for i in range(4):
         basic_frame.columnconfigure(i, weight=1)
     basic_frame.columnconfigure(1, weight=2)
     basic_frame.columnconfigure(3, weight=2)
 
     # Создаем метку для обязательных полей
     required_label = tk.Label(basic_frame, text="* - обязательное поле", font=("Arial", 8), fg="red")
-    required_label.grid(row=6, column=0, columnspan=4, sticky="w", pady=(10, 0))
+    required_label.grid(row=8, column=0, columnspan=4, sticky="w", pady=(10, 0))
 
-    # ФИО с пометкой обязательного поля
-    tk.Label(basic_frame, text="ФИО *", font=("Arial", 9), fg="red").grid(row=0, column=0, sticky="w", pady=5)
-    fio_entry = tk.Entry(basic_frame)
-    fio_entry.grid(row=0, column=1, sticky="ew", padx=5, pady=5, columnspan=3)
-    create_context_menu(fio_entry, add_window)
+    # Фамилия с пометкой обязательного поля
+    tk.Label(basic_frame, text="Фамилия *", font=("Arial", 9), fg="red").grid(row=0, column=0, sticky="w", pady=5)
+    last_name_entry = tk.Entry(basic_frame)
+    last_name_entry.grid(row=0, column=1, sticky="ew", padx=5, pady=5)
+    create_context_menu(last_name_entry, add_window)
 
-    # Номер - генерируется автоматически
-    tk.Label(basic_frame, text="Номер", font=("Arial", 9)).grid(row=1, column=0, sticky="w", pady=5)
+    # Имя с пометкой обязательного поля
+    tk.Label(basic_frame, text="Имя *", font=("Arial", 9), fg="red").grid(row=0, column=2, sticky="w", pady=5)
+    first_name_entry = tk.Entry(basic_frame)
+    first_name_entry.grid(row=0, column=3, sticky="ew", padx=5, pady=5)
+    create_context_menu(first_name_entry, add_window)
+
+    # Отчество
+    tk.Label(basic_frame, text="Отчество", font=("Arial", 9)).grid(row=1, column=0, sticky="w", pady=5)
+    patronymic_entry = tk.Entry(basic_frame)
+    patronymic_entry.grid(row=1, column=1, sticky="ew", padx=5, pady=5, columnspan=3)
+    create_context_menu(patronymic_entry, add_window)
+
+    # Номер - будет назначен автоматически из БД или из памяти
+    tk.Label(basic_frame, text="Номер", font=("Arial", 9)).grid(row=2, column=0, sticky="w", pady=5)
     number_entry = tk.Entry(basic_frame)
-    number_entry.grid(row=1, column=1, sticky="ew", padx=5, pady=5)
+    number_entry.grid(row=2, column=1, sticky="ew", padx=5, pady=5)
 
-    # Устанавливаем следующий номер и делаем поле неактивным
-    next_number = str(len(applicants) + 1)
+    # ИСПРАВЛЕНО: показываем следующий номер, который будет присвоен
+    if db_manager and db_manager.connection:
+        try:
+            cursor = db_manager.connection.cursor()
+            cursor.execute("SELECT ISNULL(MAX(id_applicant), 0) + 1 FROM Applicant")
+            next_number = str(cursor.fetchone()[0])
+        except:
+            next_number = str(len(applicants) + 1)
+    else:
+        next_number = str(len(applicants) + 1)
+
     number_entry.insert(0, next_number)
     number_entry.config(state="readonly")
 
     # Код специальности с пометкой обязательного поля
-    tk.Label(basic_frame, text="Код *", font=("Arial", 9), fg="red").grid(row=1, column=2, sticky="w", pady=5)
+    tk.Label(basic_frame, text="Код *", font=("Arial", 9), fg="red").grid(row=2, column=2, sticky="w", pady=5)
     code_entry = tk.Entry(basic_frame)
-    code_entry.grid(row=1, column=3, sticky="ew", padx=5, pady=5)
+    code_entry.grid(row=2, column=3, sticky="ew", padx=5, pady=5)
     create_context_menu(code_entry, add_window)
 
+    # ДОБАВЛЕНО: Форма обучения
+    tk.Label(basic_frame, text="Форма обучения *", font=("Arial", 9), fg="red").grid(row=3, column=0, sticky="w",
+                                                                                     pady=5)
+
+    form_of_education_options = [
+        "Очная",
+        "Заочная",
+        "Очно-заочная",
+    ]
+
+    form_of_education_combobox = ttk.Combobox(basic_frame, values=form_of_education_options, state="readonly")
+    form_of_education_combobox.grid(row=3, column=1, sticky="ew", padx=5, pady=5)
+    form_of_education_combobox.set("Очная")  # Значение по умолчанию
+    create_context_menu(form_of_education_combobox, add_window)
+
     # Рейтинг с пометкой обязательного поля
-    tk.Label(basic_frame, text="Рейтинг *", font=("Arial", 9), fg="red").grid(row=2, column=0, sticky="w", pady=5)
+    tk.Label(basic_frame, text="Рейтинг *", font=("Arial", 9), fg="red").grid(row=3, column=2, sticky="w", pady=5)
     rating_entry = tk.Entry(basic_frame)
-    rating_entry.grid(row=2, column=1, sticky="ew", padx=5, pady=5)
+    rating_entry.grid(row=3, column=3, sticky="ew", padx=5, pady=5)
     create_context_menu(rating_entry, add_window)
 
-    # Льгота с пометкой обязательного поля
-    tk.Label(basic_frame, text="Льгота *", font=("Arial", 9), fg="red").grid(row=2, column=2, sticky="w", pady=5)
-    benefits_entry = tk.Entry(basic_frame)
-    benefits_entry.grid(row=2, column=3, sticky="ew", padx=5, pady=5)
-    create_context_menu(benefits_entry, add_window)
+    # Льгота с пометкой обязательного поля и баллами
+    tk.Label(basic_frame, text="Льгота *", font=("Arial", 9), fg="red").grid(row=4, column=0, sticky="w", pady=5)
 
-    # Оригинал документов и Дата подачи в одной строке
-    frame_row3 = tk.Frame(basic_frame)
-    frame_row3.grid(row=3, column=0, columnspan=4, sticky="ew")
-    frame_row3.columnconfigure(0, weight=1)
-    frame_row3.columnconfigure(1, weight=1)
-    frame_row3.columnconfigure(2, weight=1)
-    frame_row3.columnconfigure(3, weight=1)
+    # ИСПОЛЬЗУЕМ данные из БД (benefits_data уже загружен выше)
+    benefits_options = list(benefits_data.keys())
 
-    tk.Label(frame_row3, text="Оригинал", font=("Arial", 9)).grid(row=0, column=0, sticky="w", pady=5)
+    # Создаем фрейм для льготы и баллов
+    benefit_frame = tk.Frame(basic_frame)
+    benefit_frame.grid(row=4, column=1, sticky="ew", padx=5, pady=5, columnspan=3)
+    benefit_frame.columnconfigure(0, weight=3)
+    benefit_frame.columnconfigure(1, weight=1)
+
+    benefits_combobox = ttk.Combobox(benefit_frame, values=benefits_options)
+    benefits_combobox.grid(row=0, column=0, sticky="ew", padx=(0, 5))
+    benefits_combobox.set("")
+
+    # Поле для отображения баллов
+    bonus_points_label = tk.Label(benefit_frame, text="Баллы: 0", font=("Arial", 9), fg="#3f51b5", anchor="w")
+    bonus_points_label.grid(row=0, column=1, sticky="ew")
+
+    # Функция обновления баллов при выборе льготы
+    def update_bonus_points(event=None):
+        selected_benefit = benefits_combobox.get()
+        points = benefits_data.get(selected_benefit, 0)
+        bonus_points_label.config(text=f"Баллы: {points}")
+
+    benefits_combobox.bind("<<ComboboxSelected>>", update_bonus_points)
+    create_context_menu(benefits_combobox, add_window)
+
+    # ИСПРАВЛЕНО: Оригинал документов и Дата подачи - изменен номер строки на 5
+    frame_row5 = tk.Frame(basic_frame)
+    frame_row5.grid(row=5, column=0, columnspan=4, sticky="ew")
+    frame_row5.columnconfigure(0, weight=1)
+    frame_row5.columnconfigure(1, weight=1)
+    frame_row5.columnconfigure(2, weight=1)
+    frame_row5.columnconfigure(3, weight=1)
+
+    tk.Label(frame_row5, text="Оригинал", font=("Arial", 9)).grid(row=0, column=0, sticky="w", pady=5)
     original_var = tk.BooleanVar()
-    original_check = tk.Checkbutton(frame_row3, text="Да", variable=original_var)
+    original_check = tk.Checkbutton(frame_row5, text="Да", variable=original_var)
     original_check.grid(row=0, column=1, sticky="w", padx=5, pady=5)
 
-    # Дата подачи с пометкой обязательного поля, лучше выровненная
-    tk.Label(frame_row3, text="Дата подачи *", font=("Arial", 9), fg="red").grid(row=0, column=2, sticky="w",
-                                                                                  pady=5, padx=(20, 0))
-    submission_date_entry = tk.Entry(frame_row3)
+    # Дата подачи с пометкой обязательного поля
+    tk.Label(frame_row5, text="Дата подачи *", font=("Arial", 9), fg="red").grid(row=0, column=2, sticky="w",
+                                                                                 pady=5, padx=(20, 0))
+    submission_date_entry = tk.Entry(frame_row5)
     submission_date_entry.grid(row=0, column=3, sticky="ew", padx=5, pady=5)
     create_context_menu(submission_date_entry, add_window)
 
@@ -253,28 +312,26 @@ def add_applicant_window(parent, applicants, load_data_callback, logger):
     submission_date_entry.insert(0, "ДД.ММ.ГГГГ")
     submission_date_entry.bind("<FocusIn>", lambda e: submission_date_entry.delete(0,
                                                                                    tk.END) if submission_date_entry.get() == "ДД.ММ.ГГГГ" else None)
-
-    # Привязка функции форматирования к полям даты
     submission_date_entry.bind("<KeyRelease>", lambda event: format_date(event, submission_date_entry))
 
-    # Учебное заведение с пометкой обязательного поля
-    tk.Label(basic_frame, text="Учебное заведение *", font=("Arial", 9), fg="red").grid(row=4, column=0,
-                                                                                         sticky="w", pady=5)
+    # ИСПРАВЛЕНО: Учебное заведение - изменен номер строки на 6
+    tk.Label(basic_frame, text="Учебное заведение *", font=("Arial", 9), fg="red").grid(row=6, column=0,
+                                                                                        sticky="w", pady=5)
     institution_entry = tk.Entry(basic_frame)
-    institution_entry.grid(row=4, column=1, sticky="ew", padx=5, pady=5, columnspan=3)
+    institution_entry.grid(row=6, column=1, sticky="ew", padx=5, pady=5, columnspan=3)
     create_context_menu(institution_entry, add_window)
 
-    # Город с пометкой обязательного поля
-    tk.Label(basic_frame, text="Город *", font=("Arial", 9), fg="red").grid(row=5, column=0, sticky="w", pady=5)
+    # ИСПРАВЛЕНО: Город - изменен номер строки на 7
+    tk.Label(basic_frame, text="Город *", font=("Arial", 9), fg="red").grid(row=7, column=0, sticky="w", pady=5)
     city_entry = tk.Entry(basic_frame)
-    city_entry.grid(row=5, column=1, sticky="ew", padx=5, pady=5)
+    city_entry.grid(row=7, column=1, sticky="ew", padx=5, pady=5)
     create_context_menu(city_entry, add_window)
 
     # Общежитие
-    tk.Label(basic_frame, text="Общежитие", font=("Arial", 9)).grid(row=5, column=2, sticky="w", pady=5)
+    tk.Label(basic_frame, text="Общежитие", font=("Arial", 9)).grid(row=7, column=2, sticky="w", pady=5)
     dormitory_var = tk.BooleanVar()
     dormitory_check = tk.Checkbutton(basic_frame, text="", variable=dormitory_var)
-    dormitory_check.grid(row=5, column=3, sticky="w", padx=5, pady=5)
+    dormitory_check.grid(row=7, column=3, sticky="w", padx=5, pady=5)
 
     # Дополнительная информация
     additional_frame = tk.LabelFrame(form_container, text="ДОПОЛНИТЕЛЬНО:", font=("Arial", 12, "bold"), padx=10,
@@ -282,10 +339,10 @@ def add_applicant_window(parent, applicants, load_data_callback, logger):
     additional_frame.grid(row=0, column=1, sticky="nsew", padx=10, pady=10)
 
     # Настройка масштабирования для additional_frame
-    for i in range(6):  # для строк
+    for i in range(6):
         additional_frame.rowconfigure(i, weight=1)
-    additional_frame.columnconfigure(0, weight=2)  # Увеличиваем вес для меток
-    additional_frame.columnconfigure(1, weight=2)  # Уменьшаем вес для полей ввода
+    additional_frame.columnconfigure(0, weight=2)
+    additional_frame.columnconfigure(1, weight=2)
 
     # Дата посещения
     tk.Label(additional_frame, text="Дата посещения", font=("Arial", 9)).grid(row=0, column=0, sticky="w", pady=5, padx=(0, 5))
@@ -299,11 +356,28 @@ def add_applicant_window(parent, applicants, load_data_callback, logger):
                                                                          tk.END) if visit_date_entry.get() == "ДД.ММ.ГГГГ" else None)
     visit_date_entry.bind("<KeyRelease>", lambda event: format_date(event, visit_date_entry))
 
-    # Откуда узнал/а
-    tk.Label(additional_frame, text="Откуда узнал/а", font=("Arial", 9)).grid(row=1, column=0, sticky="w", pady=5, padx=(0, 5))
-    info_source_entry = tk.Entry(additional_frame)
-    info_source_entry.grid(row=1, column=1, sticky="ew", padx=5, pady=5)
-    create_context_menu(info_source_entry, add_window)
+    # Откуда узнал/а - ИСПРАВЛЕНО: заменено на ComboBox
+    tk.Label(additional_frame, text="Откуда узнал/а", font=("Arial", 9)).grid(row=1, column=0, sticky="w", pady=5,
+                                                                              padx=(0, 5))
+
+    # Список предопределенных источников информации
+    info_source_options = [
+        "Сайт учебного заведения",
+        "Социальные сети",
+        "Рекомендация друзей/знакомых",
+        "Рекламные материалы",
+        "День открытых дверей",
+        "Ярмарка образования",
+        "Поисковые системы (Google, Яндекс)",
+        "Рекомендация учителей/родителей",
+        "СМИ (газеты, телевидение)",
+        "Другое"
+    ]
+
+    info_source_combobox = ttk.Combobox(additional_frame, values=info_source_options)
+    info_source_combobox.grid(row=1, column=1, sticky="ew", padx=5, pady=5)
+    info_source_combobox.set("")  # Пустое значение по умолчанию
+    create_context_menu(info_source_combobox, add_window)
 
     # Примечание
     tk.Label(additional_frame, text="Примечание", font=("Arial", 9)).grid(row=2, column=0, sticky="w", pady=5, padx=(0, 5))
@@ -317,10 +391,10 @@ def add_applicant_window(parent, applicants, load_data_callback, logger):
     contact_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=10, columnspan=2)
 
     # Настройка масштабирования для contact_frame
-    for i in range(4):  # для строк
+    for i in range(5):
         contact_frame.rowconfigure(i, weight=1)
     contact_frame.columnconfigure(0, weight=1)
-    contact_frame.columnconfigure(1, weight=5)  # Увеличиваем вес для полей ввода
+    contact_frame.columnconfigure(1, weight=5)
 
     # Телефон с пометкой обязательного поля
     tk.Label(contact_frame, text="Телефон *", font=("Arial", 9), fg="red").grid(row=0, column=0, sticky="w",
@@ -339,16 +413,36 @@ def add_applicant_window(parent, applicants, load_data_callback, logger):
     vk_entry.grid(row=1, column=1, sticky="ew", padx=5, pady=5)
     create_context_menu(vk_entry, add_window)
 
-    # Родитель
-    tk.Label(contact_frame, text="Родитель", font=("Arial", 9)).grid(row=2, column=0, sticky="w", pady=5)
+    # Родитель (Фамилия Имя Отчество)
+    tk.Label(contact_frame, text="Родитель (ФИО)", font=("Arial", 9)).grid(row=2, column=0, sticky="w", pady=5)
     parent_entry = tk.Entry(contact_frame)
     parent_entry.grid(row=2, column=1, sticky="ew", padx=5, pady=5)
     create_context_menu(parent_entry, add_window)
 
+    # ДОБАВЛЕНО: Кем приходится (родственная связь)
+    tk.Label(contact_frame, text="Кем приходится", font=("Arial", 9)).grid(row=3, column=0, sticky="w", pady=5)
+
+    relation_options = [
+        "Родитель",
+        "Мать",
+        "Отец",
+        "Опекун",
+        "Бабушка",
+        "Дедушка",
+        "Брат",
+        "Сестра",
+        "Другой родственник"
+    ]
+
+    relation_combobox = ttk.Combobox(contact_frame, values=relation_options)
+    relation_combobox.grid(row=3, column=1, sticky="ew", padx=5, pady=5)
+    relation_combobox.set("Родитель")  # Значение по умолчанию
+    create_context_menu(relation_combobox, add_window)
+
     # Телефон родителя
-    tk.Label(contact_frame, text="Телефон родителя", font=("Arial", 9)).grid(row=3, column=0, sticky="w", pady=5)
+    tk.Label(contact_frame, text="Телефон родителя", font=("Arial", 9)).grid(row=4, column=0, sticky="w", pady=5)
     parent_phone_entry = tk.Entry(contact_frame)
-    parent_phone_entry.grid(row=3, column=1, sticky="ew", padx=5, pady=5)
+    parent_phone_entry.grid(row=4, column=1, sticky="ew", padx=5, pady=5)
     parent_phone_entry.insert(0, "+7-___-___-__-__")
     parent_phone_entry.bind("<FocusIn>", lambda e: parent_phone_entry.delete(0,
                                                                              tk.END) if "+7-___-___-__-__" in parent_phone_entry.get() else None)
@@ -363,19 +457,27 @@ def add_applicant_window(parent, applicants, load_data_callback, logger):
     def save_applicant():
         try:
             # Валидация обязательных полей
-            if not fio_entry.get().strip():
-                messagebox.showerror("Ошибка", "Поле ФИО не может быть пустым")
+            if not last_name_entry.get().strip():
+                messagebox.showerror("Ошибка", "Поле Фамилия не может быть пустым")
+                return
+
+            if not first_name_entry.get().strip():
+                messagebox.showerror("Ошибка", "Поле Имя не может быть пустым")
                 return
 
             if not code_entry.get().strip():
                 messagebox.showerror("Ошибка", "Поле Код не может быть пустым")
                 return
 
+            if not form_of_education_combobox.get().strip():
+                messagebox.showerror("Ошибка", "Поле Форма обучения не может быть пустым")
+                return
+
             if not rating_entry.get().strip():
                 messagebox.showerror("Ошибка", "Поле Рейтинг не может быть пустым")
                 return
 
-            if not benefits_entry.get().strip():
+            if not benefits_combobox.get().strip():
                 messagebox.showerror("Ошибка", "Поле Льгота не может быть пустым")
                 return
 
@@ -403,11 +505,11 @@ def add_applicant_window(parent, applicants, load_data_callback, logger):
 
             current_date = datetime.now().date()
 
+            # Обработка даты подачи
             if submission_date_entry.get() and submission_date_entry.get() != "ДД.ММ.ГГГГ":
                 try:
                     submission_date_str = submission_date_entry.get()
                     submission_date = datetime.strptime(submission_date_str, "%d.%m.%Y").date()
-                    # Проверка, что дата не в будущем
                     if submission_date > current_date:
                         logger.warning(f"Введена будущая дата подачи: {submission_date_entry.get()}")
                         messagebox.showwarning("Предупреждение", "Дата подачи не может быть в будущем времени")
@@ -419,10 +521,10 @@ def add_applicant_window(parent, applicants, load_data_callback, logger):
                 messagebox.showerror("Ошибка", "Поле Дата подачи не может быть пустым")
                 return
 
+            # Обработка даты посещения
             visit_date = None
             if visit_date_entry.get() and visit_date_entry.get() != "ДД.ММ.ГГГГ":
                 try:
-                    # Преобразуем строку в объект date
                     visit_date = datetime.strptime(visit_date_entry.get(), "%d.%m.%Y").date()
                     if visit_date > current_date:
                         logger.warning(f"Введена будущая дата посещения: {visit_date_entry.get()}")
@@ -432,14 +534,25 @@ def add_applicant_window(parent, applicants, load_data_callback, logger):
                     messagebox.showerror("Ошибка", "Неправильный формат даты посещения (ДД.ММ.ГГГГ)")
                     return
 
+            # Получение данных из полей
+            last_name = last_name_entry.get().strip()
+            first_name = first_name_entry.get().strip()
+            patronymic = patronymic_entry.get().strip() if patronymic_entry.get().strip() else None
+
+            # Получаем бонусные баллы за выбранную льготу
+            selected_benefit = benefits_combobox.get()
+            bonus_points = benefits_data.get(selected_benefit, 0)
+
             # Создание объектов для нового абитуриента
             application_details = ApplicationDetails(
                 number=number_entry.get(),
                 code=code_entry.get(),
                 rating=rating,
                 has_original=original_var.get(),
-                benefits=benefits_entry.get(),
-                submission_date=submission_date
+                benefits=benefits_combobox.get(),
+                submission_date=submission_date,
+                form_of_education=form_of_education_combobox.get(),
+                bonus_points = bonus_points
             )
 
             education = EducationalBackground(
@@ -454,20 +567,25 @@ def add_applicant_window(parent, applicants, load_data_callback, logger):
             additional_info = AdditionalInfo(
                 department_visit=visit_date,
                 notes=notes_text.get("1.0", tk.END).strip() if notes_text.get("1.0", tk.END).strip() else None,
-                information_source=info_source_entry.get() if info_source_entry.get() else None,
+                information_source=info_source_combobox.get() if info_source_combobox.get() else None,
                 dormitory_needed=dormitory_var.get()
             )
 
+            # Обработка данных родителя
             parent = None
-            if parent_entry.get() and parent_phone_entry.get():
+            if parent_entry.get() and parent_phone_entry.get() and "+7-___-___-__-__" not in parent_phone_entry.get():
+                # ИСПРАВЛЕНО: используем parent_name вместо разбиения на компоненты
                 parent = Parent(
-                    full_name=parent_entry.get(),
-                    phone=parent_phone_entry.get()
+                    parent_name=parent_entry.get().strip(),
+                    phone=parent_phone_entry.get(),
+                    relation = relation_combobox.get()
                 )
 
             # Создание нового абитуриента
             new_applicant = Applicant(
-                full_name=fio_entry.get(),
+                last_name=last_name,
+                first_name=first_name,
+                patronymic=patronymic,
                 phone=phone_entry.get(),
                 city=city_entry.get(),
                 application_details=application_details,
@@ -477,7 +595,24 @@ def add_applicant_window(parent, applicants, load_data_callback, logger):
                 parent=parent
             )
 
-            # Добавление абитуриента в реестр
+            # Сохранение в БД
+            if db_manager and db_manager.connection:
+                try:
+                    applicant_id = db_manager.add_applicant(new_applicant)
+                    # Обновляем номер абитуриента ID из БД
+                    new_applicant.application_details.number = str(applicant_id)
+                    logger.info(f"Абитуриент сохранен в БД с ID: {applicant_id}")
+                except Exception as db_error:
+                    logger.error(f"Ошибка сохранения в БД: {str(db_error)}")
+                    messagebox.showerror("Ошибка БД",
+                                       f"Не удалось сохранить в базу данных:\n{str(db_error)}\n\nДанные будут сохранены только в памяти.")
+                    # Устанавливаем номер для памяти если БД не сработала
+                    new_applicant.application_details.number = str(len(applicants) + 1)
+            else:
+                # Если нет БД, используем порядковый номер
+                new_applicant.application_details.number = str(len(applicants) + 1)
+
+            # Добавление абитуриента в реестр (в памяти)
             applicants.append(new_applicant)
 
             # Обновление таблицы
@@ -496,7 +631,8 @@ def add_applicant_window(parent, applicants, load_data_callback, logger):
         """Сохраняет текущего абитуриента и открывает форму для создания нового"""
         save_applicant()
         # Если сохранение прошло успешно, окно будет закрыто, поэтому открываем новое
-        add_applicant_window(parent, applicants, load_data_callback, logger)
+        if not add_window.winfo_exists():
+            add_applicant_window(parent, applicants, load_data_callback, logger, db_manager)
 
     # Кнопки
     save_button = tk.Button(
