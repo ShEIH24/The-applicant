@@ -5,6 +5,41 @@ from classes import *
 from datetime import datetime
 
 
+def setup_keyboard_shortcuts(window):
+    """Настройка горячих клавиш для работы с русской раскладкой"""
+
+    def handle_keypress(event):
+        # Проверяем, что нажат Ctrl
+        if not (event.state & 0x4):  # 0x4 - флаг Control
+            return
+
+        widget = window.focus_get()
+        if not widget:
+            return
+
+        # Проверяем тип виджета
+        if not isinstance(widget, (tk.Entry, tk.Text, ttk.Entry, ttk.Combobox)):
+            return
+
+        # Определяем действие по keycode (работает для любой раскладки)
+        if event.keycode == 67:  # C/С - копирование
+            widget.event_generate("<<Copy>>")
+            return "break"
+        elif event.keycode == 86:  # V/М - вставка
+            widget.event_generate("<<Paste>>")
+            return "break"
+        elif event.keycode == 88:  # X/Ч - вырезание
+            widget.event_generate("<<Cut>>")
+            return "break"
+        elif event.keycode == 65:  # A/Ф - выделить всё
+            if isinstance(widget, tk.Text):
+                widget.tag_add("sel", "1.0", "end")
+            else:
+                widget.select_range(0, tk.END)
+            return "break"
+
+    window.bind("<Control-KeyPress>", handle_keypress)
+
 def create_context_menu(widget, parent):
     """Создание контекстного меню для виджета"""
     context_menu = tk.Menu(widget, tearoff=0)
@@ -152,17 +187,19 @@ def add_applicant_window(parent, applicants, load_data_callback, logger, db_mana
     # Создаем всплывающее окно
     add_window = tk.Toplevel(parent)
     add_window.title("Добавление абитуриента")
-    add_window.geometry("1400x750")
+    add_window.geometry("1400x800")
     add_window.resizable(True, True)
-    add_window.minsize(1400, 750)
+    add_window.minsize(1400, 800)
     add_window.grab_set()
+
+    setup_keyboard_shortcuts(add_window)
 
     # Применяем стиль заголовка
     header_frame = tk.Frame(add_window, bg="#3f51b5", height=70)
     header_frame.pack(fill="x")
     header_frame.pack_propagate(False)
 
-    header_label = tk.Label(header_frame, text="АБИТУРИЕНТ",
+    header_label = tk.Label(header_frame, text="ДОБАВЛЕНИЕ АБИТУРИЕНТА",
                             font=("Arial", 16, "bold"),
                             bg="#3f51b5", fg="white")
     header_label.pack(side="left", padx=20, pady=20)
@@ -191,9 +228,9 @@ def add_applicant_window(parent, applicants, load_data_callback, logger, db_mana
     basic_frame.columnconfigure(1, weight=2)
     basic_frame.columnconfigure(3, weight=2)
 
-    # Создаем метку для обязательных полей
+    # Обновите также номер строки для метки обязательных полей
     required_label = tk.Label(basic_frame, text="* - обязательное поле", font=("Arial", 8), fg="red")
-    required_label.grid(row=8, column=0, columnspan=4, sticky="w", pady=(10, 0))
+    required_label.grid(row=9, column=0, columnspan=4, sticky="w", pady=(10, 0))
 
     # Фамилия с пометкой обязательного поля
     tk.Label(basic_frame, text="Фамилия *", font=("Arial", 9), fg="red").grid(row=0, column=0, sticky="w", pady=5)
@@ -314,24 +351,72 @@ def add_applicant_window(parent, applicants, load_data_callback, logger, db_mana
                                                                                    tk.END) if submission_date_entry.get() == "ДД.ММ.ГГГГ" else None)
     submission_date_entry.bind("<KeyRelease>", lambda event: format_date(event, submission_date_entry))
 
-    # ИСПРАВЛЕНО: Учебное заведение - изменен номер строки на 6
+    # Учебное заведение
     tk.Label(basic_frame, text="Учебное заведение *", font=("Arial", 9), fg="red").grid(row=6, column=0,
                                                                                         sticky="w", pady=5)
     institution_entry = tk.Entry(basic_frame)
     institution_entry.grid(row=6, column=1, sticky="ew", padx=5, pady=5, columnspan=3)
     create_context_menu(institution_entry, add_window)
 
-    # ИСПРАВЛЕНО: Город - изменен номер строки на 7
-    tk.Label(basic_frame, text="Город *", font=("Arial", 9), fg="red").grid(row=7, column=0, sticky="w", pady=5)
-    city_entry = tk.Entry(basic_frame)
-    city_entry.grid(row=7, column=1, sticky="ew", padx=5, pady=5)
-    create_context_menu(city_entry, add_window)
+    # ОБНОВЛЕНО: Регион с пометкой обязательного поля
+    tk.Label(basic_frame, text="Регион *", font=("Arial", 9), fg="red").grid(row=7, column=0, sticky="w", pady=5)
+
+    # Загрузка регионов из БД
+    region_options = []
+    if db_manager and db_manager.connection:
+        try:
+            region_options = db_manager.get_all_regions()
+        except Exception as e:
+            logger.error(f"Ошибка загрузки регионов: {e}")
+
+    # Если регионы не загрузились, используем основные
+    if not region_options:
+        region_options = [
+            "Донецкая народная республика",
+            "Луганская народная республика",
+            "Херсонская область",
+            "Запорожская область",
+            "Ростовская область"
+        ]
+
+    region_combobox = ttk.Combobox(basic_frame, values=region_options)
+    region_combobox.grid(row=7, column=1, sticky="ew", padx=5, pady=5, columnspan=3)
+    region_combobox.set("")  # Пустое значение по умолчанию
+    create_context_menu(region_combobox, add_window)
+
+    # ОБНОВЛЕНО: Город под регионом
+    tk.Label(basic_frame, text="Город *", font=("Arial", 9), fg="red").grid(row=8, column=0, sticky="w", pady=5)
+    city_combobox = ttk.Combobox(basic_frame)
+    city_combobox.grid(row=8, column=1, sticky="ew", padx=5, pady=5)
+    city_combobox.set("")
+    create_context_menu(city_combobox, add_window)
+
+    # Функция обновления списка городов при выборе региона
+    def update_cities(event=None):
+        selected_region = region_combobox.get()
+        if selected_region and db_manager and db_manager.connection:
+            try:
+                cities = db_manager.get_cities_by_region(selected_region)
+                city_combobox['values'] = cities
+                if cities:
+                    city_combobox.set("")  # Сбрасываем выбор города
+                else:
+                    # Если городов нет, разрешаем свободный ввод
+                    city_combobox['values'] = []
+            except Exception as e:
+                logger.error(f"Ошибка загрузки городов: {e}")
+                city_combobox['values'] = []
+
+    region_combobox.bind("<<ComboboxSelected>>", update_cities)
+
+    # Разрешаем добавление своих значений для города
+    city_combobox.bind('<Return>', lambda e: city_combobox.set(city_combobox.get()))
 
     # Общежитие
-    tk.Label(basic_frame, text="Общежитие", font=("Arial", 9)).grid(row=7, column=2, sticky="w", pady=5)
+    tk.Label(basic_frame, text="Общежитие", font=("Arial", 9)).grid(row=8, column=2, sticky="w", pady=5)
     dormitory_var = tk.BooleanVar()
     dormitory_check = tk.Checkbutton(basic_frame, text="", variable=dormitory_var)
-    dormitory_check.grid(row=7, column=3, sticky="w", padx=5, pady=5)
+    dormitory_check.grid(row=8, column=3, sticky="w", padx=5, pady=5)
 
     # Дополнительная информация
     additional_frame = tk.LabelFrame(form_container, text="ДОПОЛНИТЕЛЬНО:", font=("Arial", 12, "bold"), padx=10,
@@ -489,7 +574,13 @@ def add_applicant_window(parent, applicants, load_data_callback, logger, db_mana
                 messagebox.showerror("Ошибка", "Поле Учебное заведение не может быть пустым")
                 return
 
-            if not city_entry.get().strip():
+            # НОВОЕ: Валидация региона
+            if not region_combobox.get().strip():
+                messagebox.showerror("Ошибка", "Поле Регион не может быть пустым")
+                return
+
+            # НОВОЕ: Валидация города
+            if not city_combobox.get().strip():
                 messagebox.showerror("Ошибка", "Поле Город не может быть пустым")
                 return
 
@@ -546,13 +637,13 @@ def add_applicant_window(parent, applicants, load_data_callback, logger, db_mana
             # Создание объектов для нового абитуриента
             application_details = ApplicationDetails(
                 number=number_entry.get(),
-                code=code_entry.get(),
+                code=code_entry.get(),  # Код специальности теперь текстовое поле
                 rating=rating,
                 has_original=original_var.get(),
                 benefits=benefits_combobox.get(),
                 submission_date=submission_date,
                 form_of_education=form_of_education_combobox.get(),
-                bonus_points = bonus_points
+                bonus_points=bonus_points
             )
 
             education = EducationalBackground(
@@ -574,11 +665,10 @@ def add_applicant_window(parent, applicants, load_data_callback, logger, db_mana
             # Обработка данных родителя
             parent = None
             if parent_entry.get() and parent_phone_entry.get() and "+7-___-___-__-__" not in parent_phone_entry.get():
-                # ИСПРАВЛЕНО: используем parent_name вместо разбиения на компоненты
                 parent = Parent(
                     parent_name=parent_entry.get().strip(),
                     phone=parent_phone_entry.get(),
-                    relation = relation_combobox.get()
+                    relation=relation_combobox.get()
                 )
 
             # Создание нового абитуриента
@@ -587,12 +677,13 @@ def add_applicant_window(parent, applicants, load_data_callback, logger, db_mana
                 first_name=first_name,
                 patronymic=patronymic,
                 phone=phone_entry.get(),
-                city=city_entry.get(),
+                city=city_combobox.get(),  # ОБНОВЛЕНО
                 application_details=application_details,
                 education=education,
                 contact_info=contact_info,
                 additional_info=additional_info,
-                parent=parent
+                parent=parent,
+                region=region_combobox.get()  # НОВОЕ
             )
 
             # Сохранение в БД
@@ -605,7 +696,7 @@ def add_applicant_window(parent, applicants, load_data_callback, logger, db_mana
                 except Exception as db_error:
                     logger.error(f"Ошибка сохранения в БД: {str(db_error)}")
                     messagebox.showerror("Ошибка БД",
-                                       f"Не удалось сохранить в базу данных:\n{str(db_error)}\n\nДанные будут сохранены только в памяти.")
+                                         f"Не удалось сохранить в базу данных:\n{str(db_error)}\n\nДанные будут сохранены только в памяти.")
                     # Устанавливаем номер для памяти если БД не сработала
                     new_applicant.application_details.number = str(len(applicants) + 1)
             else:

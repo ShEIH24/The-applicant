@@ -102,6 +102,10 @@ class ApplicantTableWindow:
                         first_name = first_name or fn
                         patronymic = patronymic or pt
 
+                    # НОВОЕ: Получаем регион и город
+                    region = str(row.get('Регион', '')).strip() if pd.notna(row.get('Регион', '')) else ''
+                    city = str(row.get('Город', '')).strip()
+
                     # Создание объектов информации
                     app_details = ApplicationDetails(
                         number=str(row.get('Номер', '')),
@@ -109,7 +113,8 @@ class ApplicantTableWindow:
                         rating=float(row.get('Рейтинг', 0)),
                         has_original=row.get('Оригинал', '') == 'Да',
                         benefits=str(row.get('Льгота', '')) if pd.notna(row.get('Льгота', '')) else None,
-                        submission_date=submission_date
+                        submission_date=submission_date,
+                        form_of_education=str(row.get('Форма обучения', 'Очная'))
                     )
 
                     education = EducationalBackground(
@@ -124,7 +129,8 @@ class ApplicantTableWindow:
                     additional_info = AdditionalInfo(
                         department_visit=visit_date,
                         notes=str(row.get('Примечание', '')) if pd.notna(row.get('Примечание', '')) else None,
-                        information_source=str(row.get('Откуда узнал/а', '')) if pd.notna(row.get('Откуда узнал/а', '')) else None,
+                        information_source=str(row.get('Откуда узнал/а', '')) if pd.notna(
+                            row.get('Откуда узнал/а', '')) else None,
                         dormitory_needed=row.get('Общежитие', '') == 'Да'
                     )
 
@@ -135,7 +141,8 @@ class ApplicantTableWindow:
                     if pd.notna(parent_raw) and str(parent_raw).strip():
                         parent = Parent(
                             parent_name=str(parent_raw).strip(),
-                            phone=str(row.get('Телефон родителя', ''))
+                            phone=str(row.get('Телефон родителя', '')),
+                            relation=str(row.get('Кем приходится', 'Родитель'))
                         )
 
                     # Создание объекта абитуриента
@@ -144,12 +151,13 @@ class ApplicantTableWindow:
                         first_name=first_name,
                         patronymic=patronymic,
                         phone=str(row.get('Телефон', '')),
-                        city=str(row.get('Город', '')),
+                        city=city,  # ОБНОВЛЕНО
                         application_details=app_details,
                         education=education,
                         contact_info=contact_info,
                         additional_info=additional_info,
-                        parent=parent
+                        parent=parent,
+                        region=region  # НОВОЕ
                     )
 
                     # Сохранение в БД
@@ -360,7 +368,7 @@ class ApplicantTableWindow:
         # Определение столбцов
         self.table["columns"] = (
             "number", "last_name", "first_name", "patronymic", "code", "rating", "benefits", "original",
-            "city", "dormitory", "institution", "submission_date",
+            "region", "city", "dormitory", "institution", "submission_date",
             "visit_date", "info_source", "phone", "vk", "parent", "parent_phone", "notes"
         )
 
@@ -377,6 +385,7 @@ class ApplicantTableWindow:
             "rating": {"text": "Рейтинг", "width": 80, "anchor": "center"},
             "benefits": {"text": "Льгота", "width": 100, "anchor": "center"},
             "original": {"text": "Оригинал", "width": 80, "anchor": "center"},
+            "region": {"text": "Регион", "width": 200, "anchor": "w"},  # НОВОЕ
             "city": {"text": "Город", "width": 120, "anchor": "center"},
             "dormitory": {"text": "Общежитие", "width": 100, "anchor": "center"},
             "institution": {"text": "Учебное заведение", "width": 200, "anchor": "w"},
@@ -484,16 +493,19 @@ class ApplicantTableWindow:
                 parent_name = applicant.parent.parent_name
                 parent_phone = applicant.parent.phone
 
-            # Вставка данных в таблицу
+            # ИСПРАВЛЕНО: Показываем итоговый рейтинг (базовый + бонусы)
+            total_rating = applicant.get_rating() + (applicant.application_details.bonus_points or 0)
+
             values = (
                 applicant.get_number(),
                 applicant.get_last_name(),
                 applicant.get_first_name(),
                 applicant.get_patronymic() or "",
                 applicant.get_code(),
-                str(applicant.get_rating()),
+                str(total_rating),
                 applicant.get_benefits() or "",
                 "Да" if applicant.has_original_documents() else "Нет",
+                getattr(applicant, 'region', ''),  # НОВОЕ: регион
                 applicant.get_city(),
                 "Да" if applicant.additional_info.dormitory_needed else "Нет",
                 applicant.education.institution,
@@ -608,26 +620,28 @@ class ApplicantTableWindow:
                                   a.last_name,
                                   a.first_name,
                                   a.patronymic,
-                                  a.city,
+                                  c.name_city,
+                                  r.name_region,
                                   a.phone,
+                                  a.vk,
                                   e.name_education,
                                   p.name     as parent_name,
                                   p.phone    as parent_phone,
                                   p.relation as parent_relation,
+                                  ad.code,
                                   ad.rating,
                                   ad.has_original,
                                   ad.submission_date,
-                                  s.name_specialty,
-                                  s.form_of_education,
                                   ai.department_visit,
                                   ai.notes,
                                   ai.dormitory_needed,
                                   isrc.name_source
                            FROM Applicant a
+                                    LEFT JOIN City c ON a.id_city = c.id_city
+                                    LEFT JOIN Region r ON c.id_region = r.id_region
                                     LEFT JOIN Education e ON a.id_education = e.id_education
                                     LEFT JOIN Parent p ON a.id_parent = p.id_parent
                                     LEFT JOIN Application_details ad ON a.id_applicant = ad.id_applicant
-                                    LEFT JOIN Specialty s ON ad.id_specialty = s.id_specialty
                                     LEFT JOIN Additional_info ai ON a.id_applicant = ai.id_applicant
                                     LEFT JOIN Information_source isrc ON ai.id_source = isrc.id_source
                            ORDER BY a.id_applicant
@@ -660,9 +674,6 @@ class ApplicantTableWindow:
             cursor.execute("DELETE FROM Applicant")
             cursor.execute("DELETE FROM Education")
             cursor.execute("DELETE FROM Parent")
-            cursor.execute("DELETE FROM Specialty")
-            cursor.execute("DELETE FROM Information_source")
-            cursor.execute("DELETE FROM Benefit")
 
             # ===== 4. СБРАСЫВАЕМ IDENTITY =====
             cursor.execute("DBCC CHECKIDENT ('Applicant', RESEED, 0)")
@@ -670,9 +681,6 @@ class ApplicantTableWindow:
             cursor.execute("DBCC CHECKIDENT ('Parent', RESEED, 0)")
             cursor.execute("DBCC CHECKIDENT ('Application_details', RESEED, 0)")
             cursor.execute("DBCC CHECKIDENT ('Additional_info', RESEED, 0)")
-            cursor.execute("DBCC CHECKIDENT ('Specialty', RESEED, 0)")
-            cursor.execute("DBCC CHECKIDENT ('Information_source', RESEED, 0)")
-            cursor.execute("DBCC CHECKIDENT ('Benefit', RESEED, 0)")
 
             # ===== 5. СОЗДАЕМ СПРАВОЧНИКИ С УНИКАЛЬНЫМИ ЗНАЧЕНИЯМИ =====
 
@@ -704,41 +712,42 @@ class ApplicantTableWindow:
                         parent_map[parent_key] = parent_id
                         parent_id += 1
 
-            # Specialty
-            specialty_map = {}  # {(name, form): new_id}
-            specialty_id = 1
-            for row in applicants_data:
-                if row.name_specialty:
-                    specialty_key = (row.name_specialty, row.form_of_education)
-                    if specialty_key not in specialty_map:
-                        cursor.execute("""
-                            SET IDENTITY_INSERT Specialty ON;
-                            INSERT INTO Specialty (id_specialty, name_specialty, form_of_education) VALUES (?, ?, ?);
-                            SET IDENTITY_INSERT Specialty OFF;
-                        """, (specialty_id, row.name_specialty, row.form_of_education))
-                        specialty_map[specialty_key] = specialty_id
-                        specialty_id += 1
+            # City и Region - НЕ удаляем и НЕ пересоздаём, они уже существуют
+            city_map = {}
+            cursor.execute("""
+                           SELECT c.id_city, c.name_city, r.name_region
+                           FROM City c
+                                    JOIN Region r ON c.id_region = r.id_region
+                           """)
+            for row in cursor.fetchall():
+                city_map[(row.name_city, row.name_region)] = row.id_city
 
-            # Information_source
-            info_source_map = {}  # {name: new_id}
-            info_source_id = 1
-            for row in applicants_data:
-                if row.name_source and row.name_source not in info_source_map:
-                    cursor.execute("""
-                        SET IDENTITY_INSERT Information_source ON;
-                        INSERT INTO Information_source (id_source, name_source) VALUES (?, ?);
-                        SET IDENTITY_INSERT Information_source OFF;
-                    """, (info_source_id, row.name_source))
-                    info_source_map[row.name_source] = info_source_id
-                    info_source_id += 1
+            # Information_source - сохраняем существующие
+            info_source_map = {}
+            cursor.execute("SELECT id_source, name_source FROM Information_source")
+            for row in cursor.fetchall():
+                info_source_map[row.name_source] = row.id_source
 
-            # Benefit (собираем все уникальные льготы)
-            benefit_map = {}  # {name: new_id}
-            benefit_id = 1
+            # Benefit - сохраняем существующие
+            benefit_map = {}
+            cursor.execute("SELECT id_benefit, name_benefit, bonus_points FROM Benefit")
+            existing_benefits = cursor.fetchall()
+
+            for row in existing_benefits:
+                benefit_map[row.name_benefit] = row.id_benefit
+
+            # Находим новые льготы, которые нужно добавить
             all_benefits = set()
             for old_id, benefits_list in benefits_map.items():
                 for benefit in benefits_list:
-                    all_benefits.add((benefit['name'], benefit['points']))
+                    if benefit['name'] not in benefit_map:
+                        all_benefits.add((benefit['name'], benefit['points']))
+
+            # Находим следующий свободный ID для льгот
+            if benefit_map:
+                benefit_id = max(benefit_map.values()) + 1
+            else:
+                benefit_id = 1
 
             for benefit_name, bonus_points in all_benefits:
                 cursor.execute("""
@@ -756,24 +765,23 @@ class ApplicantTableWindow:
                 # Получаем новые ID для справочников
                 new_education_id = education_map.get(row.name_education) if row.name_education else None
                 new_parent_id = parent_map.get((row.parent_name, row.parent_phone)) if row.parent_name else None
-                new_specialty_id = specialty_map.get(
-                    (row.name_specialty, row.form_of_education)) if row.name_specialty else None
+                new_city_id = city_map.get((row.name_city, row.name_region)) if row.name_city else None
                 new_info_source_id = info_source_map.get(row.name_source) if row.name_source else None
 
                 # Вставляем абитуриента
                 cursor.execute("""
                     SET IDENTITY_INSERT Applicant ON;
-                    INSERT INTO Applicant (id_applicant, last_name, first_name, patronymic, city, phone, id_education, id_parent)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+                    INSERT INTO Applicant (id_applicant, last_name, first_name, patronymic, id_city, phone, vk, id_education, id_parent)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
                     SET IDENTITY_INSERT Applicant OFF;
-                """, (new_id, row.last_name, row.first_name, row.patronymic, row.city, row.phone,
+                """, (new_id, row.last_name, row.first_name, row.patronymic, new_city_id, row.phone, row.vk,
                       new_education_id, new_parent_id))
 
-                # Вставляем детали заявки
+                # Вставляем детали заявки (используем code напрямую)
                 cursor.execute("""
-                               INSERT INTO Application_details (id_applicant, id_specialty, rating, has_original, submission_date)
+                               INSERT INTO Application_details (id_applicant, code, rating, has_original, submission_date)
                                VALUES (?, ?, ?, ?, ?)
-                               """, (new_id, new_specialty_id, row.rating, row.has_original, row.submission_date))
+                               """, (new_id, row.code, row.rating, row.has_original, row.submission_date))
 
                 # Получаем новый id_details
                 cursor.execute("SELECT id_details FROM Application_details WHERE id_applicant = ?", (new_id,))
@@ -810,9 +818,6 @@ class ApplicantTableWindow:
             cursor.execute(f"DBCC CHECKIDENT ('Applicant', RESEED, {len(applicants_data)})")
             cursor.execute(f"DBCC CHECKIDENT ('Education', RESEED, {len(education_map)})")
             cursor.execute(f"DBCC CHECKIDENT ('Parent', RESEED, {len(parent_map)})")
-            cursor.execute(f"DBCC CHECKIDENT ('Specialty', RESEED, {len(specialty_map)})")
-            cursor.execute(f"DBCC CHECKIDENT ('Information_source', RESEED, {len(info_source_map)})")
-            cursor.execute(f"DBCC CHECKIDENT ('Benefit', RESEED, {len(benefit_map)})")
 
             self.db_manager.connection.commit()
 
@@ -825,7 +830,6 @@ class ApplicantTableWindow:
             self.logger.info(f"  - Абитуриенты: {len(applicants_data)}")
             self.logger.info(f"  - Учебные заведения: {len(education_map)}")
             self.logger.info(f"  - Родители: {len(parent_map)}")
-            self.logger.info(f"  - Специальности: {len(specialty_map)}")
             self.logger.info(f"  - Источники информации: {len(info_source_map)}")
             self.logger.info(f"  - Льготы: {len(benefit_map)}")
 
@@ -892,26 +896,7 @@ class ApplicantTableWindow:
                                      (SELECT DISTINCT id_parent FROM Applicant WHERE id_parent IS NOT NULL)
                                """)
 
-                cursor.execute("""
-                               DELETE
-                               FROM Information_source
-                               WHERE id_source NOT IN
-                                     (SELECT DISTINCT id_source FROM Additional_info WHERE id_source IS NOT NULL)
-                               """)
-
-                cursor.execute("""
-                               DELETE
-                               FROM Specialty
-                               WHERE id_specialty NOT IN (SELECT DISTINCT id_specialty
-                                                          FROM Application_details
-                                                          WHERE id_specialty IS NOT NULL)
-                               """)
-
-                cursor.execute("""
-                               DELETE
-                               FROM Benefit
-                               WHERE id_benefit NOT IN (SELECT DISTINCT id_benefit FROM Applicant_benefit)
-                               """)
+                # УДАЛЕНО: Очистка Specialty (таблица больше не существует)
 
                 self.db_manager.connection.commit()
                 self.logger.info(f"Абитуриент успешно удалён (ID={applicant_id})")
@@ -1080,10 +1065,10 @@ class ApplicantTableWindow:
             # Создаем DataFrame для экспорта
             data = []
             columns = [
-                "Номер", "Фамилия", "Имя", "Отчество", "Код", "Рейтинг", "Льгота", "Оригинал",
-                "Город", "Общежитие", "Учебное заведение", "Дата подачи",
+                "Номер", "Фамилия", "Имя", "Отчество", "Код", "Форма обучения", "Рейтинг", "Льгота", "Оригинал",
+                "Регион", "Город", "Общежитие", "Учебное заведение", "Дата подачи",
                 "Дата посещения", "Откуда узнал/а", "Телефон", "Профиль ВК",
-                "Родитель", "Телефон родителя", "Примечание"
+                "Родитель", "Кем приходится", "Телефон родителя", "Примечание"
             ]
 
             for i, applicant in enumerate(self.applicants):
@@ -1100,19 +1085,23 @@ class ApplicantTableWindow:
 
                 parent_name = ""
                 parent_phone = ""
+                parent_relation = ""
                 if applicant.parent:
                     parent_name = applicant.parent.parent_name
                     parent_phone = applicant.parent.phone
+                    parent_relation = getattr(applicant.parent, 'relation', 'Родитель')
 
                 row = [
                     applicant.get_number(),
                     applicant.last_name,
                     applicant.first_name,
-                    applicant.patronymic,
+                    applicant.patronymic or "",
                     applicant.get_code(),
+                    getattr(applicant.application_details, 'form_of_education', 'Очная'),
                     applicant.get_rating(),
                     applicant.get_benefits() or "",
                     "Да" if applicant.has_original_documents() else "Нет",
+                    getattr(applicant, 'region', ''),  # НОВОЕ
                     applicant.get_city(),
                     "Да" if applicant.additional_info.dormitory_needed else "Нет",
                     applicant.education.institution,
@@ -1122,6 +1111,7 @@ class ApplicantTableWindow:
                     applicant.get_phone(),
                     applicant.contact_info.vk or "",
                     parent_name,
+                    parent_relation,
                     parent_phone,
                     applicant.additional_info.notes or ""
                 ]

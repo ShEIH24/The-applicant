@@ -1,6 +1,6 @@
 """app_table.py - главный файл приложения с интеграцией БД"""
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import messagebox, ttk
 import logging
 from database import DatabaseManager
 from classes import ApplicantRegistry
@@ -56,7 +56,6 @@ def initialize_database():
         )
         return None
 
-
 def main():
     """Главная функция приложения"""
     root = tk.Tk()
@@ -111,7 +110,6 @@ def main():
 
     # Запуск главного цикла
     root.mainloop()
-
 
 if __name__ == "__main__":
     main()

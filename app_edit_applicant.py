@@ -79,11 +79,13 @@ def edit_applicant_window(parent, selected_applicant, load_data_callback, logger
     # Загрузка справочных данных из БД
     benefits_data = {}
     info_source_options = []
+    region_options = []
 
     if db_manager and db_manager.connection:
         try:
             benefits_data = db_manager.get_all_benefits()
             info_source_options = db_manager.get_all_information_sources()
+            region_options = db_manager.get_all_regions()
 
             if not benefits_data:
                 db_manager.initialize_reference_data()
@@ -134,12 +136,21 @@ def edit_applicant_window(parent, selected_applicant, load_data_callback, logger
             "Другое"
         ]
 
+    if not region_options:
+        region_options = [
+            "Донецкая народная республика",
+            "Луганская народная республика",
+            "Херсонская область",
+            "Запорожская область",
+            "Ростовская область"
+        ]
+
     # Создаем всплывающее окно
     edit_window = tk.Toplevel(parent)
     edit_window.title(f"Редактирование абитуриента: {selected_applicant.get_full_name()}")
-    edit_window.geometry("1400x750")
+    edit_window.geometry("1400x800")
     edit_window.resizable(True, True)
-    edit_window.minsize(1400, 750)
+    edit_window.minsize(1400, 800)
     edit_window.grab_set()
 
     # Применяем стиль заголовка
@@ -168,7 +179,7 @@ def edit_applicant_window(parent, selected_applicant, load_data_callback, logger
     basic_frame.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
 
     # Настройка масштабирования для basic_frame
-    for i in range(9):
+    for i in range(10):
         basic_frame.rowconfigure(i, weight=1)
 
     for i in range(4):
@@ -178,7 +189,7 @@ def edit_applicant_window(parent, selected_applicant, load_data_callback, logger
 
     # Создаем метку для обязательных полей
     required_label = tk.Label(basic_frame, text="* - обязательное поле", font=("Arial", 8), fg="red")
-    required_label.grid(row=8, column=0, columnspan=4, sticky="w", pady=(10, 0))
+    required_label.grid(row=9, column=0, columnspan=4, sticky="w", pady=(10, 0))
 
     # Фамилия с пометкой обязательного поля
     tk.Label(basic_frame, text="Фамилия *", font=("Arial", 9), fg="red").grid(row=0, column=0, sticky="w", pady=5)
@@ -309,18 +320,54 @@ def edit_applicant_window(parent, selected_applicant, load_data_callback, logger
     institution_entry.insert(0, selected_applicant.education.institution)
     create_context_menu(institution_entry, edit_window)
 
-    # Город
-    tk.Label(basic_frame, text="Город *", font=("Arial", 9), fg="red").grid(row=7, column=0, sticky="w", pady=5)
-    city_entry = tk.Entry(basic_frame)
-    city_entry.grid(row=7, column=1, sticky="ew", padx=5, pady=5)
-    city_entry.insert(0, selected_applicant.city)
-    create_context_menu(city_entry, edit_window)
+    # НОВОЕ: Регион с пометкой обязательного поля
+    tk.Label(basic_frame, text="Регион *", font=("Arial", 9), fg="red").grid(row=7, column=0, sticky="w", pady=5)
+
+    region_combobox = ttk.Combobox(basic_frame, values=region_options)
+    region_combobox.grid(row=7, column=1, sticky="ew", padx=5, pady=5, columnspan=3)
+
+    # Устанавливаем текущий регион
+    current_region = getattr(selected_applicant, 'region', '')
+    region_combobox.set(current_region)
+    create_context_menu(region_combobox, edit_window)
+
+    # ОБНОВЛЕНО: Город под регионом
+    tk.Label(basic_frame, text="Город *", font=("Arial", 9), fg="red").grid(row=8, column=0, sticky="w", pady=5)
+    city_combobox = ttk.Combobox(basic_frame)
+    city_combobox.grid(row=8, column=1, sticky="ew", padx=5, pady=5)
+    city_combobox.set(selected_applicant.city)
+    create_context_menu(city_combobox, edit_window)
+
+    # Функция обновления списка городов при выборе региона
+    def update_cities(event=None):
+        selected_region = region_combobox.get()
+        if selected_region and db_manager and db_manager.connection:
+            try:
+                cities = db_manager.get_cities_by_region(selected_region)
+                city_combobox['values'] = cities
+                # Не сбрасываем текущий город при изменении региона
+            except Exception as e:
+                logger.error(f"Ошибка загрузки городов: {e}")
+                city_combobox['values'] = []
+
+    region_combobox.bind("<<ComboboxSelected>>", update_cities)
+
+    # Инициализируем список городов для текущего региона
+    if current_region and db_manager and db_manager.connection:
+        try:
+            cities = db_manager.get_cities_by_region(current_region)
+            city_combobox['values'] = cities
+        except Exception as e:
+            logger.error(f"Ошибка загрузки городов: {e}")
+
+    # Разрешаем добавление своих значений для города
+    city_combobox.bind('<Return>', lambda e: city_combobox.set(city_combobox.get()))
 
     # Общежитие
-    tk.Label(basic_frame, text="Общежитие", font=("Arial", 9)).grid(row=7, column=2, sticky="w", pady=5)
+    tk.Label(basic_frame, text="Общежитие", font=("Arial", 9)).grid(row=8, column=2, sticky="w", pady=5)
     dormitory_var = tk.BooleanVar(value=selected_applicant.additional_info.dormitory_needed)
     dormitory_check = tk.Checkbutton(basic_frame, text="", variable=dormitory_var)
-    dormitory_check.grid(row=7, column=3, sticky="w", padx=5, pady=5)
+    dormitory_check.grid(row=8, column=3, sticky="w", padx=5, pady=5)
 
     # Дополнительная информация
     additional_frame = tk.LabelFrame(form_container, text="ДОПОЛНИТЕЛЬНО:", font=("Arial", 12, "bold"), padx=10,
@@ -422,15 +469,15 @@ def edit_applicant_window(parent, selected_applicant, load_data_callback, logger
         "Другой родственник"
     ]
 
-    relation_combobox = ttk.Combobox(contact_frame, values=relation_options)
+    relation_combobox = ttk.Combobox(contact_frame, values=relation_options, state="readonly")
     relation_combobox.grid(row=3, column=1, sticky="ew", padx=5, pady=5)
 
-    # Устанавливаем текущую связь
+    # Правильная загрузка текущей связи
+    current_relation = "Родитель"  # Значение по умолчанию
     if selected_applicant.parent and hasattr(selected_applicant.parent, 'relation'):
-        relation_combobox.set(selected_applicant.parent.relation)
-    else:
-        relation_combobox.set("Родитель")
+        current_relation = selected_applicant.parent.relation or "Родитель"
 
+    relation_combobox.set(current_relation)
     create_context_menu(relation_combobox, edit_window)
 
     # Телефон родителя
@@ -482,7 +529,13 @@ def edit_applicant_window(parent, selected_applicant, load_data_callback, logger
                 messagebox.showerror("Ошибка", "Поле Учебное заведение не может быть пустым")
                 return
 
-            if not city_entry.get().strip():
+            # НОВОЕ: Валидация региона
+            if not region_combobox.get().strip():
+                messagebox.showerror("Ошибка", "Поле Регион не может быть пустым")
+                return
+
+            # НОВОЕ: Валидация города
+            if not city_combobox.get().strip():
                 messagebox.showerror("Ошибка", "Поле Город не может быть пустым")
                 return
 
@@ -528,7 +581,8 @@ def edit_applicant_window(parent, selected_applicant, load_data_callback, logger
             selected_applicant.first_name = first_name_entry.get().strip()
             selected_applicant.patronymic = patronymic_entry.get().strip() if patronymic_entry.get().strip() else None
             selected_applicant.phone = phone_entry.get()
-            selected_applicant.city = city_entry.get()
+            selected_applicant.city = city_combobox.get()  # ОБНОВЛЕНО
+            selected_applicant.region = region_combobox.get()  # НОВОЕ
 
             # Обновление образования
             selected_applicant.education.institution = institution_entry.get()
@@ -539,9 +593,9 @@ def edit_applicant_window(parent, selected_applicant, load_data_callback, logger
 
             # Обновление деталей заявки
             selected_applicant.application_details.code = code_entry.get()
-            selected_applicant.application_details.rating = rating
+            selected_applicant.application_details.rating = float(rating_entry.get().strip())
             selected_applicant.application_details.has_original = original_var.get()
-            selected_applicant.application_details.benefits = benefits_combobox.get()
+            selected_applicant.application_details.benefits = selected_benefit
             selected_applicant.application_details.submission_date = submission_date
             selected_applicant.application_details.form_of_education = form_of_education_combobox.get()
             selected_applicant.application_details.bonus_points = bonus_points
@@ -556,18 +610,20 @@ def edit_applicant_window(parent, selected_applicant, load_data_callback, logger
             selected_applicant.additional_info.information_source = info_source_combobox.get() if info_source_combobox.get() else None
             selected_applicant.additional_info.dormitory_needed = dormitory_var.get()
 
-            # Обработка данных родителя
+            # Обработка данных родителя с сохранением связи
             if parent_entry.get() and parent_phone_entry.get() and "+7-___-___-__-__" not in parent_phone_entry.get():
+                parent_relation = relation_combobox.get() if relation_combobox.get() else "Родитель"
+
                 if not selected_applicant.parent:
                     selected_applicant.parent = Parent(
                         parent_name=parent_entry.get().strip(),
                         phone=parent_phone_entry.get(),
-                        relation=relation_combobox.get()
+                        relation=parent_relation
                     )
                 else:
                     selected_applicant.parent.parent_name = parent_entry.get().strip()
                     selected_applicant.parent.phone = parent_phone_entry.get()
-                    selected_applicant.parent.relation = relation_combobox.get()
+                    selected_applicant.parent.relation = parent_relation
             else:
                 selected_applicant.parent = None
 

@@ -152,13 +152,15 @@ class Applicant(Person, IPersonalData, IApplicationData):
                  education: EducationalBackground,
                  contact_info: Optional[ContactInfo] = None,
                  additional_info: Optional[AdditionalInfo] = None,
-                 parent: Optional[Parent] = None):
+                 parent: Optional[Parent] = None,
+                 region: str = ""):  # НОВОЕ ПОЛЕ
         super().__init__(last_name, first_name, patronymic, phone, city)
         self.application_details = application_details
         self.education = education
         self.contact_info = contact_info or ContactInfo(phone)
         self.additional_info = additional_info or AdditionalInfo()
         self.parent = parent
+        self.region = region  # НОВОЕ ПОЛЕ
 
     # Реализация методов интерфейсов
     def get_last_name(self) -> str:

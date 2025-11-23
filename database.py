@@ -47,6 +47,9 @@ class DatabaseManager:
 
             self.connection = pyodbc.connect(connection_string)
             self.logger.info(f"Успешное подключение к БД {self.database}")
+
+            # ДОБАВЛЕНО: Инициализация регионов и городов
+            self.initialize_regions_and_cities()
             return True
         except pyodbc.Error as e:
             self.logger.error(f"Ошибка подключения к БД: {e}")
@@ -62,6 +65,28 @@ class DatabaseManager:
         """Создание структуры БД с каскадным удалением"""
         try:
             cursor = self.connection.cursor()
+
+            # Таблица Region
+            cursor.execute("""
+                IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='Region' AND xtype='U')
+                CREATE TABLE Region (
+                    id_region INT IDENTITY(1,1) PRIMARY KEY,
+                    name_region NVARCHAR(255) NOT NULL
+                )
+            """)
+
+            # Таблица City
+            cursor.execute("""
+                IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='City' AND xtype='U')
+                CREATE TABLE City (
+                    id_city INT IDENTITY(1,1) PRIMARY KEY,
+                    name_city NVARCHAR(255) NOT NULL,
+                    id_region INT,
+                    FOREIGN KEY (id_region)
+                        REFERENCES Region(id_region)
+                        ON DELETE SET NULL ON UPDATE CASCADE
+                )
+            """)
 
             # Таблица Education
             cursor.execute("""
@@ -102,17 +127,7 @@ class DatabaseManager:
                 )
             """)
 
-            # Таблица Specialty
-            cursor.execute("""
-                IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='Specialty' AND xtype='U')
-                CREATE TABLE Specialty (
-                    id_specialty INT IDENTITY(1,1) PRIMARY KEY,
-                    name_specialty NVARCHAR(255) NOT NULL,
-                    form_of_education NVARCHAR(255)
-                )
-            """)
-
-            # Таблица Applicant
+            # Таблица Applicant (ОБНОВЛЕНО: добавлен vk, изменен city на id_city)
             cursor.execute("""
                 IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='Applicant' AND xtype='U')
                 CREATE TABLE Applicant (
@@ -120,13 +135,18 @@ class DatabaseManager:
                     last_name NVARCHAR(100) NOT NULL,
                     first_name NVARCHAR(100) NOT NULL,
                     patronymic NVARCHAR(100),
-                    city NVARCHAR(100) NOT NULL,
+                    id_city INT,
                     phone NVARCHAR(20) NOT NULL,
+                    vk NVARCHAR(255),
 
                     id_education INT,
                     id_parent INT,
                     id_details INT,
                     id_info INT,
+
+                    FOREIGN KEY (id_city)
+                        REFERENCES City(id_city)
+                        ON DELETE SET NULL ON UPDATE CASCADE,
 
                     FOREIGN KEY (id_education)
                         REFERENCES Education(id_education)
@@ -138,24 +158,20 @@ class DatabaseManager:
                 )
             """)
 
-            # Таблица Application_details
+            # Таблица Application_details (ОБНОВЛЕНО: code вместо id_specialty)
             cursor.execute("""
                 IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='Application_details' AND xtype='U')
                 CREATE TABLE Application_details (
                     id_details INT IDENTITY(1,1) PRIMARY KEY,
                     id_applicant INT,
-                    id_specialty INT,
+                    code NVARCHAR(50) NOT NULL,
                     rating FLOAT NOT NULL,
                     has_original BIT DEFAULT 0,
                     submission_date DATE,
 
                     FOREIGN KEY (id_applicant)
                         REFERENCES Applicant(id_applicant)
-                        ON DELETE CASCADE ON UPDATE CASCADE,
-
-                    FOREIGN KEY (id_specialty)
-                        REFERENCES Specialty(id_specialty)
-                        ON DELETE SET NULL ON UPDATE CASCADE
+                        ON DELETE CASCADE ON UPDATE CASCADE
                 )
             """)
 
@@ -244,7 +260,11 @@ class DatabaseManager:
                     BEGIN
                         INSERT INTO Benefit (name_benefit, bonus_points) VALUES (?, ?)
                     END
-                """, (benefit_name, benefit_name, bonus_points))
+                    ELSE
+                    BEGIN
+                        UPDATE Benefit SET bonus_points = ? WHERE name_benefit = ?
+                    END
+                """, (benefit_name, benefit_name, bonus_points, bonus_points, benefit_name))
 
             # Инициализация источников информации
             info_sources = [
@@ -274,6 +294,153 @@ class DatabaseManager:
         except Exception as e:
             self.logger.error(f"Ошибка инициализации справочных данных: {e}")
             self.connection.rollback()
+
+    def get_or_create_region(self, region_name: str) -> int:
+        """Получить ID региона или создать новый"""
+        cursor = self.connection.cursor()
+
+        cursor.execute(
+            "SELECT id_region FROM Region WHERE name_region = ?",
+            (region_name,)
+        )
+        row = cursor.fetchone()
+
+        if row:
+            return row[0]
+
+        cursor.execute("SELECT ISNULL(MAX(id_region), 0) + 1 FROM Region")
+        id_region = cursor.fetchone()[0]
+
+        cursor.execute("""
+            SET IDENTITY_INSERT Region ON;
+            INSERT INTO Region (id_region, name_region) VALUES (?, ?);
+            SET IDENTITY_INSERT Region OFF;
+        """, (id_region, region_name))
+
+        self.connection.commit()
+        return id_region
+
+    def get_or_create_city(self, city_name: str, region_name: str) -> int:
+        """Получить ID города или создать новый"""
+        cursor = self.connection.cursor()
+
+        # Получаем или создаем регион
+        id_region = self.get_or_create_region(region_name)
+
+        # Проверяем существование города в этом регионе
+        cursor.execute("""
+                       SELECT id_city
+                       FROM City
+                       WHERE name_city = ?
+                         AND id_region = ?
+                       """, (city_name, id_region))
+        row = cursor.fetchone()
+
+        if row:
+            return row[0]
+
+        # Создаем новый город
+        cursor.execute("""
+                       INSERT INTO City (name_city, id_region)
+                       VALUES (?, ?)
+                       """, (city_name, id_region))
+
+        self.connection.commit()
+
+        cursor.execute("SELECT @@IDENTITY")
+        return int(cursor.fetchone()[0])
+
+    def initialize_regions_and_cities(self):
+        """Инициализация основных регионов и городов"""
+        try:
+            cursor = self.connection.cursor()
+
+            # Основные регионы с их городами
+            regions_cities = {
+                "Донецкая народная республика": [
+                    "Донецк", "Макеевка", "Горловка", "Енакиево", "Харцызск",
+                    "Дебальцево", "Шахтерск", "Ясиноватая", "Снежное", "Тельманово"
+                ],
+                "Луганская народная республика": [
+                    "Луганск", "Алчевск", "Антрацит", "Брянка", "Красный Луч",
+                    "Первомайск", "Ровеньки", "Стаханов", "Свердловск", "Краснодон"
+                ],
+                "Херсонская область": [
+                    "Херсон", "Каховка", "Новая Каховка", "Скадовск", "Голая Пристань",
+                    "Берислав", "Генічеськ", "Таврійськ"
+                ],
+                "Запорожская область": [
+                    "Запорожье", "Мелитополь", "Бердянск", "Энергодар", "Токмак",
+                    "Васильевка", "Орехов", "Приморск", "Пологи"
+                ],
+                "Ростовская область": [
+                    "Ростов-на-Дону", "Таганрог", "Шахты", "Новочеркасск", "Волгодонск",
+                    "Новошахтинск", "Каменск-Шахтинский", "Азов", "Батайск", "Гуково"
+                ]
+            }
+
+            for region_name, cities in regions_cities.items():
+                # Проверяем существование региона
+                cursor.execute("""
+                               SELECT id_region
+                               FROM Region
+                               WHERE name_region = ?
+                               """, (region_name,))
+                row = cursor.fetchone()
+
+                if not row:
+                    # Создаем регион
+                    cursor.execute("""
+                                   INSERT INTO Region (name_region)
+                                   VALUES (?)
+                                   """, (region_name,))
+                    cursor.execute("SELECT @@IDENTITY")
+                    id_region = cursor.fetchone()[0]
+                    self.logger.info(f"Создан регион: {region_name} (ID: {id_region})")
+                else:
+                    id_region = row[0]
+
+                # Добавляем города для этого региона
+                for city_name in cities:
+                    cursor.execute("""
+                        IF NOT EXISTS (SELECT 1 FROM City WHERE name_city = ? AND id_region = ?)
+                        BEGIN
+                            INSERT INTO City (name_city, id_region) VALUES (?, ?)
+                        END
+                    """, (city_name, id_region, city_name, id_region))
+
+            self.connection.commit()
+            self.logger.info("Регионы и города успешно инициализированы")
+
+        except Exception as e:
+            self.logger.error(f"Ошибка инициализации регионов и городов: {e}")
+            self.connection.rollback()
+
+    def get_all_regions(self):
+        """Получить все регионы из БД"""
+        try:
+            cursor = self.connection.cursor()
+            cursor.execute("SELECT name_region FROM Region ORDER BY name_region")
+            return [row.name_region for row in cursor.fetchall()]
+        except Exception as e:
+            self.logger.error(f"Ошибка получения регионов: {e}")
+            return []
+
+    def get_cities_by_region(self, region_name: str):
+        """Получить города по региону"""
+        try:
+            cursor = self.connection.cursor()
+            cursor.execute("""
+                           SELECT c.name_city
+                           FROM City c
+                                    JOIN Region r ON c.id_region = r.id_region
+                           WHERE r.name_region = ?
+                           ORDER BY c.name_city
+                           """, (region_name,))
+            return [row.name_city for row in cursor.fetchall()]
+        except Exception as e:
+            self.logger.error(f"Ошибка получения городов: {e}")
+            return []
 
     def get_or_create_education(self, institution_name: str) -> int:
         """Получить ID учебного заведения или создать новое"""
@@ -362,25 +529,33 @@ class DatabaseManager:
         cursor = self.connection.cursor()
 
         cursor.execute(
-            "SELECT id_benefit FROM Benefit WHERE name_benefit = ?",
+            "SELECT id_benefit, bonus_points FROM Benefit WHERE name_benefit = ?",
             (benefit_name,)
         )
         row = cursor.fetchone()
 
         if row:
-            return row[0]
+            # Если баллы изменились, обновляем их
+            if row.bonus_points != bonus_points:
+                cursor.execute("""
+                               UPDATE Benefit
+                               SET bonus_points = ?
+                               WHERE id_benefit = ?
+                               """, (bonus_points, row.id_benefit))
+                self.connection.commit()
+            return row.id_benefit
 
-        cursor.execute("SELECT ISNULL(MAX(id_benefit), 0) + 1 FROM Benefit")
-        id_benefit = cursor.fetchone()[0]
-
+        # Создаем новую льготу (без ручного управления IDENTITY)
         cursor.execute("""
-            SET IDENTITY_INSERT Benefit ON;
-            INSERT INTO Benefit (id_benefit, name_benefit, bonus_points) VALUES (?, ?, ?);
-            SET IDENTITY_INSERT Benefit OFF;
-        """, (id_benefit, benefit_name, bonus_points))
+                       INSERT INTO Benefit (name_benefit, bonus_points)
+                       VALUES (?, ?);
+                       """, (benefit_name, bonus_points))
 
         self.connection.commit()
-        return id_benefit
+
+        # Получаем назначенный ID
+        cursor.execute("SELECT @@IDENTITY")
+        return int(cursor.fetchone()[0])
 
     def get_or_create_information_source(self, source_name: str) -> Optional[int]:
         """Получить ID источника информации или создать новый"""
@@ -433,13 +608,8 @@ class DatabaseManager:
         try:
             cursor = self.connection.cursor()
 
-            # ПРОСТО берем следующий ID
             cursor.execute("SELECT ISNULL(MAX(id_applicant), 0) + 1 FROM Applicant")
             id_applicant = cursor.fetchone()[0]
-
-            last_name = applicant.last_name
-            first_name = applicant.first_name
-            patronymic = applicant.patronymic
 
             id_education = self.get_or_create_education(applicant.education.institution)
 
@@ -447,40 +617,38 @@ class DatabaseManager:
             if applicant.parent:
                 id_parent = self.add_parent(applicant.parent)
 
+            # НОВОЕ: Получаем id_city (регион берем из applicant.region)
+            id_city = self.get_or_create_city(applicant.city, applicant.region)
+
+            # ОБНОВЛЕНО: Добавляем vk и используем id_city
             cursor.execute("""
                 SET IDENTITY_INSERT Applicant ON;
-
-                INSERT INTO Applicant (id_applicant, last_name, first_name, patronymic, city, phone, id_education, id_parent)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?);
-
+                INSERT INTO Applicant (id_applicant, last_name, first_name, patronymic, id_city, phone, vk, id_education, id_parent)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
                 SET IDENTITY_INSERT Applicant OFF;
-            """, (id_applicant, last_name, first_name, patronymic, applicant.city, applicant.phone,
-                  id_education, id_parent))
+            """, (id_applicant, applicant.last_name, applicant.first_name, applicant.patronymic,
+                  id_city, applicant.phone, applicant.contact_info.vk, id_education, id_parent))
 
             self.connection.commit()
 
-            # Остальной код без изменений
-            id_specialty = self.get_or_create_specialty(applicant.application_details.code)
-
-            # === ДОБАВЛЕНО: вычисляем итоговый рейтинг ===
+            # Вычисляем итоговый рейтинг
             benefit_points = 0
             if applicant.application_details.benefits:
                 benefit_points = self.get_benefit_points(applicant.application_details.benefits)
 
             total_rating = applicant.application_details.rating + benefit_points
 
-            # Вставка Application_details
+            # ОБНОВЛЕНО: используем code напрямую вместо id_specialty
             cursor.execute("""
-                           INSERT INTO Application_details (id_applicant, id_specialty, rating, has_original, submission_date)
+                           INSERT INTO Application_details (id_applicant, code, rating, has_original, submission_date)
                            VALUES (?, ?, ?, ?, ?)
-                           """, (id_applicant, id_specialty, total_rating,
+                           """, (id_applicant, applicant.application_details.code, total_rating,
                                  applicant.application_details.has_original,
                                  applicant.application_details.submission_date))
 
             self.connection.commit()
 
             if applicant.application_details.benefits:
-                # ИЗМЕНЕНО: передаем баллы при создании льготы
                 id_benefit = self.get_or_create_benefit(
                     applicant.application_details.benefits,
                     applicant.application_details.bonus_points
@@ -529,16 +697,24 @@ class DatabaseManager:
         try:
             cursor = self.connection.cursor()
 
-            # Получаем ID абитуриента
             id_applicant = int(applicant.application_details.number)
 
-            # Получаем или создаем ID учебного заведения
+            base_rating = applicant.application_details.rating
+
+            new_bonus_points = 0
+            if applicant.application_details.benefits:
+                new_bonus_points = self.get_benefit_points(applicant.application_details.benefits)
+
+            total_rating = base_rating + new_bonus_points
+
             id_education = self.get_or_create_education(applicant.education.institution)
+
+            # НОВОЕ: Получаем id_city
+            id_city = self.get_or_create_city(applicant.city, applicant.region)
 
             # Обработка родителя
             id_parent = None
             if applicant.parent:
-                # Проверяем, есть ли уже родитель у абитуриента
                 cursor.execute("""
                                SELECT id_parent
                                FROM Applicant
@@ -547,7 +723,6 @@ class DatabaseManager:
                 row = cursor.fetchone()
 
                 if row and row[0]:
-                    # Обновляем существующего родителя
                     id_parent = row[0]
                     cursor.execute("""
                                    UPDATE Parent
@@ -560,80 +735,57 @@ class DatabaseManager:
                                                                               'relation') else "Родитель",
                                          id_parent))
                 else:
-                    # Создаем нового родителя
                     id_parent = self.add_parent(applicant.parent)
-            else:
-                # Если родитель удален, устанавливаем NULL
-                cursor.execute("""
-                               SELECT id_parent
-                               FROM Applicant
-                               WHERE id_applicant = ?
-                               """, (id_applicant,))
-                row = cursor.fetchone()
-                if row and row[0]:
-                    # Удаляем связь с родителем
-                    id_parent = None
 
-            # Обновляем основную информацию абитуриента
+            # ОБНОВЛЕНО: используем id_city и добавлен vk
             cursor.execute("""
                            UPDATE Applicant
                            SET last_name    = ?,
                                first_name   = ?,
                                patronymic   = ?,
-                               city         = ?,
+                               id_city      = ?,
                                phone        = ?,
+                               vk           = ?,
                                id_education = ?,
                                id_parent    = ?
                            WHERE id_applicant = ?
                            """, (applicant.last_name, applicant.first_name, applicant.patronymic,
-                                 applicant.city, applicant.phone, id_education, id_parent, id_applicant))
+                                 id_city, applicant.phone, applicant.contact_info.vk,
+                                 id_education, id_parent, id_applicant))
 
-            # Получаем ID специальности
-            id_specialty = self.get_or_create_specialty(applicant.application_details.code)
-
-            # Вычисляем итоговый рейтинг с баллами
-            benefit_points = 0
-            if applicant.application_details.benefits:
-                benefit_points = self.get_benefit_points(applicant.application_details.benefits)
-
-            total_rating = applicant.application_details.rating + benefit_points
-
-            # Обновляем Application_details
+            # ОБНОВЛЕНО: используем code напрямую
             cursor.execute("""
                            UPDATE Application_details
-                           SET id_specialty    = ?,
+                           SET code            = ?,
                                rating          = ?,
                                has_original    = ?,
                                submission_date = ?
                            WHERE id_applicant = ?
-                           """, (id_specialty, total_rating, applicant.application_details.has_original,
+                           """, (applicant.application_details.code, total_rating,
+                                 applicant.application_details.has_original,
                                  applicant.application_details.submission_date, id_applicant))
 
             # Обновляем связь с льготами
-            # Сначала удаляем старые связи
             cursor.execute("""
                            DELETE
                            FROM Applicant_benefit
                            WHERE id_applicant = ?
                            """, (id_applicant,))
 
-            # Добавляем новую связь, если есть льгота
             if applicant.application_details.benefits:
                 id_benefit = self.get_or_create_benefit(
                     applicant.application_details.benefits,
-                    applicant.application_details.bonus_points
+                    new_bonus_points
                 )
                 cursor.execute("""
                                INSERT INTO Applicant_benefit (id_applicant, id_benefit)
                                VALUES (?, ?)
                                """, (id_applicant, id_benefit))
 
-            # Получаем ID источника информации
             id_source = self.get_or_create_information_source(
                 applicant.additional_info.information_source
             )
 
-            # Обновляем Additional_info
             cursor.execute("""
                            UPDATE Additional_info
                            SET department_visit = ?,
@@ -651,12 +803,8 @@ class DatabaseManager:
             self.logger.info(f"Абитуриент {applicant.get_full_name()} успешно обновлен в БД (ID: {id_applicant})")
             return True
 
-        except pyodbc.Error as e:
-            self.logger.error(f"Ошибка обновления абитуриента в БД: {e}")
-            self.connection.rollback()
-            raise
         except Exception as e:
-            self.logger.error(f"Неожиданная ошибка при обновлении абитуриента: {e}")
+            self.logger.error(f"Ошибка обновления абитуриента в БД: {e}")
             self.connection.rollback()
             raise
 
@@ -670,14 +818,17 @@ class DatabaseManager:
                                   a.last_name,
                                   a.first_name,
                                   a.patronymic,
-                                  a.city,
+                                  c.name_city,
+                                  r.name_region,
                                   a.phone,
+                                  a.vk,
                                   e.name_education,
+                                  ad.code,
                                   ad.rating,
                                   ad.has_original,
                                   ad.submission_date,
-                                  s.name_specialty,
                                   b.name_benefit,
+                                  b.bonus_points,
                                   ai.department_visit,
                                   ai.notes,
                                   ai.dormitory_needed,
@@ -686,68 +837,78 @@ class DatabaseManager:
                                   p.phone    as parent_phone,
                                   p.relation as parent_relation
                            FROM Applicant a
+                                    LEFT JOIN City c ON a.id_city = c.id_city
+                                    LEFT JOIN Region r ON c.id_region = r.id_region
                                     LEFT JOIN Education e ON a.id_education = e.id_education
-                                    LEFT JOIN Application_details ad ON a.id_details = ad.id_details
-                                    LEFT JOIN Specialty s ON ad.id_specialty = s.id_specialty
-                                    LEFT JOIN Additional_info ai ON a.id_info = ai.id_info
+                                    LEFT JOIN Application_details ad ON a.id_applicant = ad.id_applicant
+                                    LEFT JOIN Additional_info ai ON a.id_applicant = ai.id_applicant
                                     LEFT JOIN Information_source isrc ON ai.id_source = isrc.id_source
                                     LEFT JOIN Parent p ON a.id_parent = p.id_parent
                                     LEFT JOIN Applicant_benefit ab ON a.id_applicant = ab.id_applicant
                                     LEFT JOIN Benefit b ON ab.id_benefit = b.id_benefit
                            """)
 
+            rows = cursor.fetchall()
+
+            # ДОБАВЛЕНО: Логирование для отладки
+            self.logger.info(f"Получено {len(rows)} строк из БД")
+
             applicants = []
-            for row in cursor.fetchall():
-                # Формируем полное имя
-                full_name = f"{row.last_name} {row.first_name}"
-                if row.patronymic:
-                    full_name += f" {row.patronymic}"
+            for row in rows:
+                try:
+                    education = EducationalBackground(institution=row.name_education or "")
 
-                # Создаем объекты
-                education = EducationalBackground(institution=row.name_education)
+                    contact_info = ContactInfo(phone=row.phone or "", vk=row.vk)
 
-                contact_info = ContactInfo(phone=row.phone)
+                    base_rating = (row.rating or 0.0) - (row.bonus_points or 0)
 
-                application_details = ApplicationDetails(
-                    number=str(row.id_applicant),
-                    code=row.name_specialty or "",
-                    rating=row.rating or 0.0,
-                    has_original=row.has_original or False,
-                    benefits=row.name_benefit,
-                    submission_date=row.submission_date,
-
-                )
-
-                additional_info = AdditionalInfo(
-                    department_visit=row.department_visit,
-                    notes=row.notes,
-                    information_source=row.name_source,
-                    dormitory_needed=row.dormitory_needed or False
-                )
-
-                parent = None
-                if row.parent_name:
-                    parent = Parent(
-                        parent_name=row.parent_name,
-                        phone=row.parent_phone or ""
+                    application_details = ApplicationDetails(
+                        number=str(row.id_applicant),
+                        code=row.code or "",
+                        rating=base_rating,
+                        has_original=row.has_original or False,
+                        benefits=row.name_benefit,
+                        submission_date=row.submission_date,
+                        form_of_education="Очная",  # Значение по умолчанию
+                        bonus_points=row.bonus_points or 0
                     )
 
-                applicant = Applicant(
-                    last_name=row.last_name,
-                    first_name=row.first_name,
-                    patronymic=row.patronymic,
-                    phone=row.phone,
-                    city=row.city,
-                    application_details=application_details,
-                    education=education,
-                    contact_info=contact_info,
-                    additional_info=additional_info,
-                    parent=parent
-                )
+                    additional_info = AdditionalInfo(
+                        department_visit=row.department_visit,
+                        notes=row.notes,
+                        information_source=row.name_source,
+                        dormitory_needed=row.dormitory_needed or False
+                    )
 
-                applicants.append(applicant)
+                    parent = None
+                    if row.parent_name:
+                        parent = Parent(
+                            parent_name=row.parent_name,
+                            phone=row.parent_phone or "",
+                            relation=row.parent_relation or "Родитель"
+                        )
 
-            self.logger.info(f"Загружено {len(applicants)} абитуриентов из БД")
+                    applicant = Applicant(
+                        last_name=row.last_name,
+                        first_name=row.first_name,
+                        patronymic=row.patronymic,
+                        phone=row.phone or "",
+                        city=row.name_city or "",
+                        application_details=application_details,
+                        education=education,
+                        contact_info=contact_info,
+                        additional_info=additional_info,
+                        parent=parent,
+                        region=row.name_region or ""  # ВАЖНО: добавляем регион
+                    )
+
+                    applicants.append(applicant)
+
+                except Exception as e:
+                    self.logger.error(f"Ошибка обработки строки с id_applicant={row.id_applicant}: {e}")
+                    continue
+
+            self.logger.info(f"Успешно загружено {len(applicants)} абитуриентов из БД")
             return applicants
 
         except pyodbc.Error as e:
