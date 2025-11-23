@@ -64,7 +64,7 @@ def main():
 
     # Установка иконки если есть
     try:
-        icon = tk.PhotoImage(file="icon.png")
+        icon = tk.PhotoImage(file="icon.ico")
         root.iconphoto(True, icon)
     except:
         pass
