@@ -8,6 +8,7 @@ from classes import *
 from logger import Logger
 from app_add_applicant import add_applicant_window, parse_full_name
 from app_edit_applicant import edit_applicant_window
+from app_reports import open_reports_window
 
 
 class ApplicantTableWindow:
@@ -311,6 +312,11 @@ class ApplicantTableWindow:
             self.import_db_button.config(state="disabled", bg="#9e9e9e")
             self.logger.info("Кнопка 'Импорт из БД' отключена - данные уже загружены из БД")
 
+        self.reports_button = tk.Button(button_frame, bg="#4caf50", fg="white",
+                                        text="Отчёты", width=12,
+                                        command=self.open_reports)
+        self.reports_button.grid(row=0, column=8, padx=5)
+
         # Поле поиска
         search_frame = tk.Frame(self.parent)
         search_frame.grid(row=2, column=0, sticky="ew", padx=10, pady=10)
@@ -576,6 +582,11 @@ class ApplicantTableWindow:
             messagebox.showinfo("Поиск", f"Абитуриент с текстом '{search_text}' не найден")
             self.logger.info(f"Абитуриент с текстом '{search_text}' не найден")
 
+    def open_reports(self):
+        """Открыть окно аналитики и отчётов"""
+        self.logger.info("Открытие окна отчётов")
+        open_reports_window(self.parent, self.db_manager, self.logger)
+
     def add_applicant(self):
         """Открывает окно для добавления нового абитуриента"""
         self.logger.info("Открытие формы добавления абитуриента")
@@ -639,9 +650,9 @@ class ApplicantTableWindow:
                            FROM Applicant a
                                     LEFT JOIN City c ON a.id_city = c.id_city
                                     LEFT JOIN Region r ON c.id_region = r.id_region
-                                    LEFT JOIN Education e ON a.id_education = e.id_education
                                     LEFT JOIN Parent p ON a.id_parent = p.id_parent
                                     LEFT JOIN Application_details ad ON a.id_applicant = ad.id_applicant
+                                    LEFT JOIN Education e ON ad.id_education = e.id_education
                                     LEFT JOIN Additional_info ai ON a.id_applicant = ai.id_applicant
                                     LEFT JOIN Information_source isrc ON ai.id_source = isrc.id_source
                            ORDER BY a.id_applicant
@@ -684,18 +695,33 @@ class ApplicantTableWindow:
 
             # ===== 5. СОЗДАЕМ СПРАВОЧНИКИ С УНИКАЛЬНЫМИ ЗНАЧЕНИЯМИ =====
 
+            city_map = {}  # {(name_city, name_region): id_city}
+            cursor.execute("""
+                           SELECT c.id_city, c.name_city, r.name_region
+                           FROM City c
+                                    JOIN Region r ON c.id_region = r.id_region
+                           """)
+            for row in cursor.fetchall():
+                city_map[(row.name_city, row.name_region)] = row.id_city
+
             # Education
-            education_map = {}  # {old_name: new_id}
+            education_map = {}  # {(old_name, city): new_id}
             education_id = 1
             for row in applicants_data:
-                if row.name_education and row.name_education not in education_map:
-                    cursor.execute("""
-                        SET IDENTITY_INSERT Education ON;
-                        INSERT INTO Education (id_education, name_education) VALUES (?, ?);
-                        SET IDENTITY_INSERT Education OFF;
-                    """, (education_id, row.name_education))
-                    education_map[row.name_education] = education_id
-                    education_id += 1
+                if row.name_education:
+                    edu_key = (row.name_education, row.name_city, row.name_region)
+                    if edu_key not in education_map:
+                        # Получаем id_city
+                        id_city = city_map.get((row.name_city, row.name_region))
+
+                        cursor.execute("""
+                            SET IDENTITY_INSERT Education ON;
+                            INSERT INTO Education (id_education, name_education, id_city) 
+                            VALUES (?, ?, ?);
+                            SET IDENTITY_INSERT Education OFF;
+                        """, (education_id, row.name_education, id_city))
+                        education_map[edu_key] = education_id
+                        education_id += 1
 
             # Parent
             parent_map = {}  # {(name, phone): new_id}
@@ -763,25 +789,28 @@ class ApplicantTableWindow:
                 old_id = row.id_applicant
 
                 # Получаем новые ID для справочников
-                new_education_id = education_map.get(row.name_education) if row.name_education else None
+                edu_key = (row.name_education, row.name_city, row.name_region)
+                new_education_id = education_map.get(edu_key) if row.name_education else None
                 new_parent_id = parent_map.get((row.parent_name, row.parent_phone)) if row.parent_name else None
                 new_city_id = city_map.get((row.name_city, row.name_region)) if row.name_city else None
                 new_info_source_id = info_source_map.get(row.name_source) if row.name_source else None
 
-                # Вставляем абитуриента
+                # ИЗМЕНЕНО: Удален id_education из INSERT Applicant
                 cursor.execute("""
                     SET IDENTITY_INSERT Applicant ON;
-                    INSERT INTO Applicant (id_applicant, last_name, first_name, patronymic, id_city, phone, vk, id_education, id_parent)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+                    INSERT INTO Applicant (id_applicant, last_name, first_name, patronymic, id_city, phone, vk, id_parent)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?);
                     SET IDENTITY_INSERT Applicant OFF;
                 """, (new_id, row.last_name, row.first_name, row.patronymic, new_city_id, row.phone, row.vk,
-                      new_education_id, new_parent_id))
+                      new_parent_id))
 
-                # Вставляем детали заявки (используем code напрямую)
+                # ИЗМЕНЕНО: Добавлен id_education в INSERT Application_details
                 cursor.execute("""
-                               INSERT INTO Application_details (id_applicant, code, rating, has_original, submission_date)
-                               VALUES (?, ?, ?, ?, ?)
-                               """, (new_id, row.code, row.rating, row.has_original, row.submission_date))
+                               INSERT INTO Application_details (id_applicant, code, rating, has_original,
+                                                                submission_date, id_education)
+                               VALUES (?, ?, ?, ?, ?, ?)
+                               """,
+                               (new_id, row.code, row.rating, row.has_original, row.submission_date, new_education_id))
 
                 # Получаем новый id_details
                 cursor.execute("SELECT id_details FROM Application_details WHERE id_applicant = ?", (new_id,))
