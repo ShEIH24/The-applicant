@@ -215,7 +215,7 @@ def add_applicant_window(parent, applicants, load_data_callback, logger):
     # Создаем всплывающее окно
     add_window = tk.Toplevel(parent)
     add_window.title("Добавление абитуриента")
-    add_window.geometry("1400x650")
+    add_window.geometry("1400x750")
     add_window.resizable(True, True)
     add_window.minsize(1400, 650)
     add_window.grab_set()  # Делаем окно модальным
