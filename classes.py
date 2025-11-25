@@ -2,23 +2,10 @@ from abc import ABC, abstractmethod
 from typing import Optional, List
 from datetime import date, datetime
 
-
 # Интерфейсы
 class IPersonalData(ABC):
     @abstractmethod
     def get_full_name(self) -> str:
-        pass
-
-    @abstractmethod
-    def get_last_name(self) -> str:
-        pass
-
-    @abstractmethod
-    def get_first_name(self) -> str:
-        pass
-
-    @abstractmethod
-    def get_patronymic(self) -> Optional[str]:
         pass
 
     @abstractmethod
@@ -51,77 +38,65 @@ class IApplicationData(ABC):
     def get_benefits(self) -> Optional[str]:
         pass
 
-
 # Основные классы
 class Person:
-    def __init__(self, last_name: str, first_name: str, patronymic: Optional[str] = None,
-                 phone: str = None, city: str = None):
-        self.last_name = last_name
-        self.first_name = first_name
-        self.patronymic = patronymic
+    def __init__(self, full_name: str, phone: str, city: str = None):
+        self.full_name = full_name
         self.phone = phone
         self.city = city
 
-    def get_full_name(self) -> str:
-        """Возвращает полное ФИО"""
-        if self.patronymic:
-            return f"{self.last_name} {self.first_name} {self.patronymic}"
-        return f"{self.last_name} {self.first_name}"
-
 
 class Parent:
-    def __init__(self, parent_name: str, phone: str = None, relation: str = 'Родитель'):
-        self.parent_name = parent_name
+    def __init__(self, full_name: str, phone: str, relation: str = "Родитель"):
+        self.full_name = full_name
         self.phone = phone
         self.relation = relation
 
-    def get_full_name(self) -> str:
-        return self.parent_name
-
 
 class EducationalBackground:
-    def __init__(self, institution: str, average_score: Optional[float] = None):
+    def __init__(self, institution: str):
         self.institution = institution
-        self.average_score = average_score
-
 
 class ContactInfo:
-    def __init__(self, phone: str, vk: Optional[str] = None):
+    def __init__(self, phone: str, email: Optional[str] = None, vk: Optional[str] = None, nickname: Optional[str] = None):
         self.phone = phone
+        self.email = email
         self.vk = vk
-
+        self.nickname = nickname
 
 class ApplicationDetails:
     def __init__(self, number: str, code: str, rating: float, has_original: bool = False,
-                 benefits: Optional[str] = None, submission_date: date = None,
-                 form_of_education: str = 'Очная', bonus_points: int = 0):
+                 benefits: Optional[str] = None, submission_date: date = None):
         self.number = number
         self.code = code
         self.rating = rating
         self.has_original = has_original
         self.benefits = benefits
         self.submission_date = submission_date
-        self.form_of_education = form_of_education
-        self.bonus_points = bonus_points
-
-    def get_total_rating(self):
-        """Получить итоговый рейтинг (базовый рейтинг + бонусные баллы)"""
-        return self.rating + self.bonus_points
 
     def get_submission_date_formatted(self) -> str:
         """Возвращает дату подачи в формате ДД.ММ.ГГГГ"""
-        if self.submission_date:
-            if isinstance(self.submission_date, (datetime, date)):
-                return self.submission_date.strftime("%d.%m.%Y")
-            elif isinstance(self.submission_date, float):
-                # Конвертируем float timestamp в дату
+        if not self.submission_date:
+            return ""
+        # Обработка NaN (float('nan'))
+        if isinstance(self.submission_date, float) and (self.submission_date != self.submission_date):  # NaN check
+            return ""
+        if isinstance(self.submission_date, (datetime, date)):
+            return self.submission_date.strftime("%d.%m.%Y")
+        elif isinstance(self.submission_date, str):
+            # Попробуем распарсить строку, если это дата
+            try:
+                dt = datetime.strptime(self.submission_date.strip(), "%d.%m.%Y")
+                return dt.strftime("%d.%m.%Y")
+            except ValueError:
+                return self.submission_date.strip()
+        elif isinstance(self.submission_date, (int, float)):
+            try:
                 dt = datetime.fromtimestamp(self.submission_date)
                 return dt.strftime("%d.%m.%Y")
-            else:
-                # Если это строка или другой тип
-                return str(self.submission_date)
-        return ""
-
+            except (ValueError, OSError, OverflowError):
+                return ""
+        return str(self.submission_date)
 
 class AdditionalInfo:
     def __init__(self,
@@ -141,11 +116,51 @@ class AdditionalInfo:
         return ""
 
 
+class ExamScores:
+    def __init__(self, russian: int = 0, math: int = 0, informatics: int = 0):
+        self._russian = self._validate_score(russian)
+        self._math = self._validate_score(math)
+        self._informatics = self._validate_score(informatics)
+
+    @staticmethod
+    def _validate_score(score: int) -> int:
+        """Валидация оценки (должна быть от 0 до 100)"""
+        if not isinstance(score, (int, float)):
+            return 0
+        score = int(score)
+        return max(0, min(100, score))
+
+    @property
+    def russian(self) -> int:
+        return self._russian
+
+    @russian.setter
+    def russian(self, value: int):
+        self._russian = self._validate_score(value)
+
+    @property
+    def math(self) -> int:
+        return self._math
+
+    @math.setter
+    def math(self, value: int):
+        self._math = self._validate_score(value)
+
+    @property
+    def informatics(self) -> int:
+        return self._informatics
+
+    @informatics.setter
+    def informatics(self, value: int):
+        self._informatics = self._validate_score(value)
+
+    def get_total_score(self) -> int:
+        """Возвращает сумму всех баллов"""
+        return self._russian + self._math + self._informatics
+
 class Applicant(Person, IPersonalData, IApplicationData):
     def __init__(self,
-                 last_name: str,
-                 first_name: str,
-                 patronymic: Optional[str],
+                 full_name: str,
                  phone: str,
                  city: str,
                  application_details: ApplicationDetails,
@@ -153,24 +168,18 @@ class Applicant(Person, IPersonalData, IApplicationData):
                  contact_info: Optional[ContactInfo] = None,
                  additional_info: Optional[AdditionalInfo] = None,
                  parent: Optional[Parent] = None,
-                 region: str = ""):  # НОВОЕ ПОЛЕ
-        super().__init__(last_name, first_name, patronymic, phone, city)
+                 exam_scores: Optional[ExamScores] = None):
+        super().__init__(full_name, phone, city)
         self.application_details = application_details
         self.education = education
         self.contact_info = contact_info or ContactInfo(phone)
         self.additional_info = additional_info or AdditionalInfo()
         self.parent = parent
-        self.region = region  # НОВОЕ ПОЛЕ
+        self.exam_scores = exam_scores or ExamScores()
 
     # Реализация методов интерфейсов
-    def get_last_name(self) -> str:
-        return self.last_name
-
-    def get_first_name(self) -> str:
-        return self.first_name
-
-    def get_patronymic(self) -> Optional[str]:
-        return self.patronymic
+    def get_full_name(self) -> str:
+        return self.full_name
 
     def get_phone(self) -> str:
         return self.phone
@@ -192,7 +201,6 @@ class Applicant(Person, IPersonalData, IApplicationData):
 
     def get_benefits(self) -> Optional[str]:
         return self.application_details.benefits
-
 
 class ApplicantRegistry:
     def __init__(self):
@@ -225,5 +233,4 @@ class ApplicantRegistry:
         return [a for a in self.applicants if a.additional_info.dormitory_needed]
 
     def get_dormitory_requests_by_city(self, city: str) -> List[Applicant]:
-        return [a for a in self.applicants if
-                a.get_city().lower() == city.lower() and a.additional_info.dormitory_needed]
+        return [a for a in self.applicants if a.get_city().lower() == city.lower() and a.additional_info.dormitory_needed]

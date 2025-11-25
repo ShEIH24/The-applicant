@@ -2,41 +2,36 @@
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 import pandas as pd
-from pandas.plotting import table
-
 from classes import *
 from logger import Logger
-from app_add_applicant import add_applicant_window, parse_full_name
-from app_edit_applicant import edit_applicant_window
-from app_reports import open_reports_window
+from app_add_applicant import add_applicant_window
+from app_edit_applicant import ApplicantEditForm
 
 
 class ApplicantTableWindow:
-    def __init__(self, parent, applicants, logger, db_manager=None, offer_import=True):
+    def __init__(self, parent, applicants, logger, offer_import=True):
         """
         Инициализация окна с таблицей абитуриентов
 
         :param parent: Родительский виджет
         :param applicants: Список абитуриентов
         :param logger: Экземпляр логгера
-        :param db_manager: Менеджер базы данных
         :param offer_import: Флаг, предлагать ли импорт данных (только при первом запуске)
         """
         self.parent = parent
         self.applicants = applicants
         self.logger = logger
-        self.db_manager = db_manager
         self.selected_applicant = None
 
         # Логирование запуска окна с таблицей
         self.logger.info("Инициализация окна с таблицей абитуриентов")
 
+        # Предложение импортировать данные из Excel только при запуске программы
+        if offer_import:
+            self.offer_import()
+
         # Настройка адаптивного интерфейса
         self.setup_ui()
-
-        # Предложение импортировать данные из Excel только при запуске программы И если БД пуста
-        if offer_import and len(self.applicants) == 0:
-            self.offer_import()
 
         # Заполнение таблицы данными
         self.load_data()
@@ -49,7 +44,7 @@ class ApplicantTableWindow:
     def offer_import(self):
         """Предлагает пользователю импортировать данные из Excel файла"""
         import_response = messagebox.askyesno("Импорт данных",
-                                              "База данных пуста. Хотите импортировать данные из Excel файла?")
+                                              "Хотите импортировать данные из Excel файла?")
         if import_response:
             self.import_from_excel()
 
@@ -68,8 +63,8 @@ class ApplicantTableWindow:
             # Чтение данных из Excel
             df = pd.read_excel(file_path)
 
-            # Очистка текущего списка абитуриентов (только в памяти)
-            imported_count = 0
+            # Очистка текущего списка абитуриентов
+            self.applicants.clear()
 
             # Преобразование данных из DataFrame в объекты Applicant
             for _, row in df.iterrows():
@@ -78,163 +73,74 @@ class ApplicantTableWindow:
                     visit_date = None
                     if 'Дата посещения' in row and pd.notna(row['Дата посещения']):
                         try:
+                            # Явно указываем формат даты при конвертации
                             visit_date = pd.to_datetime(row['Дата посещения'], dayfirst=True).to_pydatetime()
                         except:
                             visit_date = None
 
-                    # Обработка даты подачи
-                    submission_date = None
-                    if 'Дата подачи' in row and pd.notna(row['Дата подачи']):
-                        try:
-                            submission_date = pd.to_datetime(row['Дата подачи'], dayfirst=True).date()
-                        except:
-                            submission_date = None
-
-                    # Если в файле есть отдельные колонки — используем их
-                    last_name = str(row.get('Фамилия', '')).strip()
-                    first_name = str(row.get('Имя', '')).strip()
-                    patronymic = str(row.get('Отчество', '')).strip()
-
-                    # Если отдельные колонки пустые — разбираем ФИО
-                    if not last_name or not first_name:
-                        full_name = str(row.get('ФИО', '')).strip()
-                        ln, fn, pt = parse_full_name(full_name)
-                        last_name = last_name or ln
-                        first_name = first_name or fn
-                        patronymic = patronymic or pt
-
-                    # НОВОЕ: Получаем регион и город
-                    region = str(row.get('Регион', '')).strip() if pd.notna(row.get('Регион', '')) else ''
-                    city = str(row.get('Город', '')).strip()
-
                     # Создание объектов информации
+                    def clean_value(val):
+                        return "" if pd.isna(val) else str(val).strip()
+
                     app_details = ApplicationDetails(
-                        number=str(row.get('Номер', '')),
-                        code=str(row.get('Код', '')),
-                        rating=float(row.get('Рейтинг', 0)),
-                        has_original=row.get('Оригинал', '') == 'Да',
-                        benefits=str(row.get('Льгота', '')) if pd.notna(row.get('Льгота', '')) else None,
-                        submission_date=submission_date,
-                        form_of_education=str(row.get('Форма обучения', 'Очная'))
+                        number=clean_value(row.get('Номер', '')),
+                        code=clean_value(row.get('Код', '')),
+                        rating=float(row.get('Рейтинг', 0)) if not pd.isna(row.get('Рейтинг')) else 0.0,
+                        has_original=clean_value(row.get('Оригинал', '')) == 'Да',
+                        benefits=clean_value(row.get('Льгота', '')) or None,
+                        submission_date=row.get('Дата подачи', '')
                     )
 
                     education = EducationalBackground(
-                        institution=str(row.get('Учебное заведение', ''))
+                        institution=clean_value(row.get('Учебное заведение', ''))
                     )
 
                     contact_info = ContactInfo(
-                        phone=str(row.get('Телефон', '')),
-                        vk=str(row.get('Профиль ВК', '')) if pd.notna(row.get('Профиль ВК', '')) else None
+                        phone=clean_value(row.get('Телефон', '')),
+                        vk=clean_value(row.get('Профиль ВК', '')) or None,
+                        email=clean_value(row.get('Email', '')) or None,
+                        nickname=clean_value(row.get('Ник', '')) or None
                     )
 
                     additional_info = AdditionalInfo(
                         department_visit=visit_date,
-                        notes=str(row.get('Примечание', '')) if pd.notna(row.get('Примечание', '')) else None,
-                        information_source=str(row.get('Откуда узнал/а', '')) if pd.notna(
-                            row.get('Откуда узнал/а', '')) else None,
-                        dormitory_needed=row.get('Общежитие', '') == 'Да'
+                        notes=clean_value(row.get('Примечание', '')) or None,
+                        information_source=clean_value(row.get('Откуда узнал/а', '')) or None,
+                        dormitory_needed=clean_value(row.get('Общежитие', '')) == 'Да'
                     )
 
                     # Создание объекта родителя при наличии данных
                     parent = None
-                    parent_raw = row.get('Родитель')
-
-                    if pd.notna(parent_raw) and str(parent_raw).strip():
+                    if pd.notna(row.get('Родитель', '')) and row.get('Родитель', '') != '':
                         parent = Parent(
-                            parent_name=str(parent_raw).strip(),
-                            phone=str(row.get('Телефон родителя', '')),
-                            relation=str(row.get('Кем приходится', 'Родитель'))
+                            full_name=row.get('Родитель', ''),
+                            phone=row.get('Телефон родителя', '')
                         )
 
                     # Создание объекта абитуриента
                     applicant = Applicant(
-                        last_name=last_name,
-                        first_name=first_name,
-                        patronymic=patronymic,
-                        phone=str(row.get('Телефон', '')),
-                        city=city,  # ОБНОВЛЕНО
+                        full_name=row.get('ФИО', ''),
+                        phone=row.get('Телефон', ''),
+                        city=row.get('Город', ''),
                         application_details=app_details,
                         education=education,
                         contact_info=contact_info,
                         additional_info=additional_info,
-                        parent=parent,
-                        region=region  # НОВОЕ
+                        parent=parent
                     )
 
-                    # Сохранение в БД
-                    if self.db_manager and self.db_manager.connection:
-                        try:
-                            id_applicant = self.db_manager.add_applicant(applicant)
-                            applicant.application_details.number = str(id_applicant)
-                            self.applicants.append(applicant)
-                            imported_count += 1
-                        except Exception as db_error:
-                            self.logger.error(f"Ошибка сохранения в БД при импорте: {str(db_error)}")
-                    else:
-                        self.applicants.append(applicant)
-                        imported_count += 1
+                    self.applicants.append(applicant)
 
                 except Exception as e:
                     self.logger.error(f"Ошибка при импорте строки: {str(e)}")
 
-            self.logger.info(f"Успешно импортировано {imported_count} записей из файла: {file_path}")
-            messagebox.showinfo("Импорт", f"Успешно импортировано {imported_count} записей.")
-
-            # Обновляем таблицу
-            self.load_data()
+            self.logger.info(f"Успешно импортировано {len(self.applicants)} записей из файла: {file_path}")
+            messagebox.showinfo("Импорт", f"Успешно импортировано {len(self.applicants)} записей.")
 
         except Exception as e:
             error_msg = f"Ошибка при импорте данных: {str(e)}"
             self.logger.error(error_msg)
             messagebox.showerror("Ошибка", f"Произошла ошибка при импорте:\n{str(e)}")
-
-    #Импорт данных с БД
-    def import_from_database(self):
-        """Импорт данных напрямую из БД"""
-        if not self.db_manager or not self.db_manager.connection:
-            messagebox.showwarning("Предупреждение",
-                                   "Отсутствует подключение к базе данных.\n"
-                                   "Проверьте настройки подключения.")
-            self.logger.warning("Попытка импорта из БД без подключения")
-            return
-
-        # ИЗМЕНЕНО: Если данные уже загружены из БД при старте, предупреждаем
-        if len(self.applicants) > 0:
-            messagebox.showinfo(
-                "Информация",
-                "Данные уже загружены из базы данных при запуске приложения.\n\n"
-                "Используйте кнопку 'Обновить' для синхронизации с БД."
-            )
-            self.logger.info("Попытка повторного импорта из БД отклонена")
-            return
-
-        try:
-            self.logger.info("Начало импорта из БД")
-            loaded_applicants = self.db_manager.load_all_applicants()
-
-            if not loaded_applicants:
-                messagebox.showinfo("Импорт из БД", "База данных пуста")
-                self.logger.info("БД не содержит записей")
-                return
-
-            self.applicants.clear()
-            self.applicants.extend(loaded_applicants)
-            message = f"Загружено {len(loaded_applicants)} записей из БД"
-            self.logger.info(message)
-
-            # Обновляем таблицу
-            self.load_data()
-
-            # Отключаем кнопку после успешного импорта
-            self.import_db_button.config(state="disabled", bg="#9e9e9e")
-
-            messagebox.showinfo("Импорт из БД", message)
-
-        except Exception as e:
-            error_msg = f"Ошибка импорта из БД: {str(e)}"
-            self.logger.error(error_msg)
-            messagebox.showerror("Ошибка импорта",
-                                 f"Произошла ошибка при импорте из базы данных:\n\n{str(e)}")
 
     def on_closing(self):
         """Обработчик закрытия окна"""
@@ -243,11 +149,6 @@ class ApplicantTableWindow:
                                                   "Хотите экспортировать данные в Excel перед закрытием?")
             if export_response:
                 self.export_to_excel()
-
-        # Закрытие соединения с БД
-        if self.db_manager:
-            self.db_manager.disconnect()
-            self.logger.info("Соединение с БД закрыто")
 
         self.parent.destroy()
 
@@ -270,7 +171,7 @@ class ApplicantTableWindow:
         # Панель кнопок
         button_frame = tk.Frame(self.parent)
         button_frame.grid(row=1, column=0, sticky="ew", padx=10, pady=10)
-        button_frame.grid_columnconfigure(8, weight=1)
+        button_frame.grid_columnconfigure(7, weight=1)  # Увеличено число столбцов
 
         # Кнопки управления
         self.add_button = tk.Button(button_frame, bg="#3f51b5", fg="white", text="Добавить", width=10,
@@ -300,22 +201,6 @@ class ApplicantTableWindow:
         self.import_button = tk.Button(button_frame, bg="#3f51b5", fg="white", text="Импорт", width=10,
                                        command=self.import_from_excel)
         self.import_button.grid(row=0, column=6, padx=5)
-
-        # В методе setup_ui() после кнопки "Импорт"
-        self.import_db_button = tk.Button(button_frame, bg="#3f51b5", fg="white",
-                                          text="Импорт из БД", width=12,
-                                          command=self.import_from_database)
-        self.import_db_button.grid(row=0, column=7, padx=5)
-
-        # Если БД подключена и данные уже загружены, делаем кнопку неактивной
-        if self.db_manager and self.db_manager.connection and len(self.applicants) > 0:
-            self.import_db_button.config(state="disabled", bg="#9e9e9e")
-            self.logger.info("Кнопка 'Импорт из БД' отключена - данные уже загружены из БД")
-
-        self.reports_button = tk.Button(button_frame, bg="#4caf50", fg="white",
-                                        text="Отчёты", width=12,
-                                        command=self.open_reports)
-        self.reports_button.grid(row=0, column=8, padx=5)
 
         # Поле поиска
         search_frame = tk.Frame(self.parent)
@@ -373,9 +258,10 @@ class ApplicantTableWindow:
         """Настройка столбцов таблицы"""
         # Определение столбцов
         self.table["columns"] = (
-            "number", "last_name", "first_name", "patronymic", "code", "rating", "benefits", "original",
-            "region", "city", "dormitory", "institution", "submission_date",
-            "visit_date", "info_source", "phone", "vk", "parent", "parent_phone", "notes"
+            "number", "fio", "nickname", "code", "rating", "benefits", "original",
+            "city", "dormitory", "institution", "submission_date",
+            "visit_date", "info_source", "phone", "vk", "parent", "parent_phone",
+            "russian", "math", "informatics", "notes"
         )
 
         # Показываем заголовки
@@ -384,14 +270,12 @@ class ApplicantTableWindow:
         # Настройка заголовков и ширины столбцов
         columns_config = {
             "number": {"text": "Номер", "width": 50, "anchor": "center"},
-            "last_name": {"text": "Фамилия", "width": 120, "anchor": "w"},
-            "first_name": {"text": "Имя", "width": 100, "anchor": "w"},
-            "patronymic": {"text": "Отчество", "width": 120, "anchor": "w"},
+            "fio": {"text": "ФИО", "width": 200, "anchor": "w"},
+            "nickname": {"text": "Ник", "width": 120, "anchor": "w"},
             "code": {"text": "Код", "width": 80, "anchor": "center"},
             "rating": {"text": "Рейтинг", "width": 80, "anchor": "center"},
             "benefits": {"text": "Льгота", "width": 100, "anchor": "center"},
             "original": {"text": "Оригинал", "width": 80, "anchor": "center"},
-            "region": {"text": "Регион", "width": 200, "anchor": "w"},  # НОВОЕ
             "city": {"text": "Город", "width": 120, "anchor": "center"},
             "dormitory": {"text": "Общежитие", "width": 100, "anchor": "center"},
             "institution": {"text": "Учебное заведение", "width": 200, "anchor": "w"},
@@ -402,12 +286,16 @@ class ApplicantTableWindow:
             "vk": {"text": "Профиль ВК", "width": 120, "anchor": "w"},
             "parent": {"text": "Родитель", "width": 200, "anchor": "w"},
             "parent_phone": {"text": "Телефон родителя", "width": 150, "anchor": "w"},
+            "russian": {"text": "Русский язык", "width": 100, "anchor": "center"},
+            "math": {"text": "Математика", "width": 100, "anchor": "center"},
+            "informatics": {"text": "Информатика", "width": 100, "anchor": "center"},
             "notes": {"text": "Примечание", "width": 200, "anchor": "w"}
         }
 
         # Настройка столбцов
         for col_id, config in columns_config.items():
             if col_id in self.table["columns"]:
+                # Установка минимальной ширины для столбца на основе длины заголовка
                 min_width = max(config["width"], len(config["text"]) * 10)
                 self.table.column(col_id, width=min_width, minwidth=min_width, anchor=config["anchor"])
                 self.table.heading(col_id, text=config["text"], anchor=config["anchor"],
@@ -431,9 +319,8 @@ class ApplicantTableWindow:
         # Маппинг столбцов таблицы на атрибуты класса Applicant
         column_mapping = {
             "number": lambda a: int(a.get_number()) if a.get_number().isdigit() else 0,
-            "last_name": lambda a: a.get_last_name().lower(),
-            "first_name": lambda a: a.get_first_name().lower(),
-            "patronymic": lambda a: (a.get_patronymic() or "").lower(),
+            "fio": lambda a: a.get_full_name().lower(),
+            "nickname": lambda a: (a.contact_info.nickname or "").lower(),
             "code": lambda a: a.get_code().lower(),
             "rating": lambda a: float(a.get_rating()),
             "benefits": lambda a: (a.get_benefits() or "").lower(),
@@ -441,13 +328,15 @@ class ApplicantTableWindow:
             "city": lambda a: a.get_city().lower(),
             "dormitory": lambda a: a.additional_info.dormitory_needed,
             "institution": lambda a: a.education.institution.lower(),
-            "submission_date": lambda a: (a.application_details.submission_date or datetime.min.date()),
             "visit_date": lambda a: (a.additional_info.department_visit or datetime.min),
             "info_source": lambda a: (a.additional_info.information_source or "").lower(),
             "phone": lambda a: a.get_phone(),
             "vk": lambda a: (a.contact_info.vk or "").lower(),
-            "parent": lambda a: (a.parent.get_full_name().lower() if a.parent else ""),
+            "parent": lambda a: (a.parent.full_name.lower() if a.parent else ""),
             "parent_phone": lambda a: (a.parent.phone if a.parent else ""),
+            "russian": lambda a: a.exam_scores.russian,
+            "math": lambda a: a.exam_scores.math,
+            "informatics": lambda a: a.exam_scores.informatics,
             "notes": lambda a: (a.additional_info.notes or "").lower()
         }
 
@@ -484,34 +373,26 @@ class ApplicantTableWindow:
             # Форматирование данных для таблицы
             visit_date = ""
             if applicant.additional_info.department_visit:
-                if isinstance(applicant.additional_info.department_visit, date):
-                    visit_date = applicant.additional_info.department_visit.strftime("%d.%m.%Y")
-                elif isinstance(applicant.additional_info.department_visit, datetime):
-                    visit_date = applicant.additional_info.department_visit.strftime("%d.%m.%Y")
+                visit_date = applicant.additional_info.department_visit.strftime("%d.%m.%Y")
 
             submission_date = ""
             if applicant.application_details.submission_date:
                 submission_date = applicant.application_details.get_submission_date_formatted()
-
             parent_name = ""
             parent_phone = ""
             if applicant.parent:
-                parent_name = applicant.parent.parent_name
+                parent_name = applicant.parent.full_name
                 parent_phone = applicant.parent.phone
 
-            # ИСПРАВЛЕНО: Показываем итоговый рейтинг (базовый + бонусы)
-            total_rating = applicant.get_rating() + (applicant.application_details.bonus_points or 0)
-
+            # Вставка данных в таблицу
             values = (
                 applicant.get_number(),
-                applicant.get_last_name(),
-                applicant.get_first_name(),
-                applicant.get_patronymic() or "",
+                applicant.get_full_name(),
+                applicant.contact_info.nickname or "",
                 applicant.get_code(),
-                str(total_rating),
+                str(applicant.get_rating()),
                 applicant.get_benefits() or "",
                 "Да" if applicant.has_original_documents() else "Нет",
-                getattr(applicant, 'region', ''),  # НОВОЕ: регион
                 applicant.get_city(),
                 "Да" if applicant.additional_info.dormitory_needed else "Нет",
                 applicant.education.institution,
@@ -522,6 +403,9 @@ class ApplicantTableWindow:
                 applicant.contact_info.vk or "",
                 parent_name,
                 parent_phone,
+                str(applicant.exam_scores.russian),
+                str(applicant.exam_scores.math),
+                str(applicant.exam_scores.informatics),
                 applicant.additional_info.notes or ""
             )
 
@@ -542,7 +426,7 @@ class ApplicantTableWindow:
         """Очистка placeholder в поле поиска при фокусе"""
         if self.search_var.get() == "Поиск абитуриента":
             self.search_entry.delete(0, tk.END)
-            self.search_var.set("")
+            self.search_var.set("")  # Добавлено для очистки переменной
 
     def restore_search_placeholder(self, event):
         """Восстановление placeholder в поле поиска при потере фокуса"""
@@ -582,15 +466,12 @@ class ApplicantTableWindow:
             messagebox.showinfo("Поиск", f"Абитуриент с текстом '{search_text}' не найден")
             self.logger.info(f"Абитуриент с текстом '{search_text}' не найден")
 
-    def open_reports(self):
-        """Открыть окно аналитики и отчётов"""
-        self.logger.info("Открытие окна отчётов")
-        open_reports_window(self.parent, self.db_manager, self.logger)
-
     def add_applicant(self):
         """Открывает окно для добавления нового абитуриента"""
         self.logger.info("Открытие формы добавления абитуриента")
-        add_applicant_window(self.parent, self.applicants, self.load_data, self.logger, self.db_manager)
+
+        # Вызываем функцию из отдельного модуля
+        add_applicant_window(self.parent, self.applicants, self.load_data, self.logger)
 
     def edit_applicant(self):
         """Открытие формы редактирования выбранного абитуриента"""
@@ -604,362 +485,45 @@ class ApplicantTableWindow:
             self.logger.warning("Попытка редактирования без выбора абитуриента")
             return
 
-        from app_edit_applicant import edit_applicant_window
-
-        edit_applicant_window(
+        # Создаем и показываем форму редактирования
+        edit_form = ApplicantEditForm(
             parent=self.parent,
             selected_applicant=self.selected_applicant,
-            load_data_callback=self.load_data,
-            logger=self.logger,
-            db_manager=self.db_manager
+            on_save_callback=self.refresh_data,
+            logger=self.logger
         )
-
-    def renumber_applicants(self):
-        """Перенумерация абитуриентов и всех связанных таблиц после удаления"""
-        if not self.db_manager or not self.db_manager.connection:
-            self.logger.warning("Нет подключения к БД для перенумерации")
-            return
-
-        self.logger.info("Запуск полной перенумерации всех таблиц")
-
-        try:
-            cursor = self.db_manager.connection.cursor()
-
-            # ===== 1. СОХРАНЯЕМ ДАННЫЕ АБИТУРИЕНТОВ =====
-            cursor.execute("""
-                           SELECT a.id_applicant,
-                                  a.last_name,
-                                  a.first_name,
-                                  a.patronymic,
-                                  c.name_city,
-                                  r.name_region,
-                                  a.phone,
-                                  a.vk,
-                                  e.name_education,
-                                  p.name     as parent_name,
-                                  p.phone    as parent_phone,
-                                  p.relation as parent_relation,
-                                  ad.code,
-                                  ad.rating,
-                                  ad.has_original,
-                                  ad.submission_date,
-                                  ai.department_visit,
-                                  ai.notes,
-                                  ai.dormitory_needed,
-                                  isrc.name_source
-                           FROM Applicant a
-                                    LEFT JOIN City c ON a.id_city = c.id_city
-                                    LEFT JOIN Region r ON c.id_region = r.id_region
-                                    LEFT JOIN Parent p ON a.id_parent = p.id_parent
-                                    LEFT JOIN Application_details ad ON a.id_applicant = ad.id_applicant
-                                    LEFT JOIN Education e ON ad.id_education = e.id_education
-                                    LEFT JOIN Additional_info ai ON a.id_applicant = ai.id_applicant
-                                    LEFT JOIN Information_source isrc ON ai.id_source = isrc.id_source
-                           ORDER BY a.id_applicant
-                           """)
-            applicants_data = cursor.fetchall()
-
-            if not applicants_data:
-                self.logger.info("Нет абитуриентов для перенумерации")
-                return
-
-            # ===== 2. СОХРАНЯЕМ ЛЬГОТЫ =====
-            benefits_map = {}
-            cursor.execute("""
-                           SELECT ab.id_applicant, b.name_benefit, b.bonus_points
-                           FROM Applicant_benefit ab
-                                    JOIN Benefit b ON ab.id_benefit = b.id_benefit
-                           """)
-            for row in cursor.fetchall():
-                if row.id_applicant not in benefits_map:
-                    benefits_map[row.id_applicant] = []
-                benefits_map[row.id_applicant].append({
-                    'name': row.name_benefit,
-                    'points': row.bonus_points
-                })
-
-            # ===== 3. УДАЛЯЕМ ВСЕ ДАННЫЕ =====
-            cursor.execute("DELETE FROM Applicant_benefit")
-            cursor.execute("DELETE FROM Application_details")
-            cursor.execute("DELETE FROM Additional_info")
-            cursor.execute("DELETE FROM Applicant")
-            cursor.execute("DELETE FROM Education")
-            cursor.execute("DELETE FROM Parent")
-
-            # ===== 4. СБРАСЫВАЕМ IDENTITY =====
-            cursor.execute("DBCC CHECKIDENT ('Applicant', RESEED, 0)")
-            cursor.execute("DBCC CHECKIDENT ('Education', RESEED, 0)")
-            cursor.execute("DBCC CHECKIDENT ('Parent', RESEED, 0)")
-            cursor.execute("DBCC CHECKIDENT ('Application_details', RESEED, 0)")
-            cursor.execute("DBCC CHECKIDENT ('Additional_info', RESEED, 0)")
-
-            # ===== 5. СОЗДАЕМ СПРАВОЧНИКИ С УНИКАЛЬНЫМИ ЗНАЧЕНИЯМИ =====
-
-            city_map = {}  # {(name_city, name_region): id_city}
-            cursor.execute("""
-                           SELECT c.id_city, c.name_city, r.name_region
-                           FROM City c
-                                    JOIN Region r ON c.id_region = r.id_region
-                           """)
-            for row in cursor.fetchall():
-                city_map[(row.name_city, row.name_region)] = row.id_city
-
-            # Education
-            education_map = {}  # {(old_name, city): new_id}
-            education_id = 1
-            for row in applicants_data:
-                if row.name_education:
-                    edu_key = (row.name_education, row.name_city, row.name_region)
-                    if edu_key not in education_map:
-                        # Получаем id_city
-                        id_city = city_map.get((row.name_city, row.name_region))
-
-                        cursor.execute("""
-                            SET IDENTITY_INSERT Education ON;
-                            INSERT INTO Education (id_education, name_education, id_city) 
-                            VALUES (?, ?, ?);
-                            SET IDENTITY_INSERT Education OFF;
-                        """, (education_id, row.name_education, id_city))
-                        education_map[edu_key] = education_id
-                        education_id += 1
-
-            # Parent
-            parent_map = {}  # {(name, phone): new_id}
-            parent_id = 1
-            for row in applicants_data:
-                if row.parent_name:
-                    parent_key = (row.parent_name, row.parent_phone)
-                    if parent_key not in parent_map:
-                        cursor.execute("""
-                            SET IDENTITY_INSERT Parent ON;
-                            INSERT INTO Parent (id_parent, name, phone, relation) VALUES (?, ?, ?, ?);
-                            SET IDENTITY_INSERT Parent OFF;
-                        """, (parent_id, row.parent_name, row.parent_phone, row.parent_relation or "Родитель"))
-                        parent_map[parent_key] = parent_id
-                        parent_id += 1
-
-            # City и Region - НЕ удаляем и НЕ пересоздаём, они уже существуют
-            city_map = {}
-            cursor.execute("""
-                           SELECT c.id_city, c.name_city, r.name_region
-                           FROM City c
-                                    JOIN Region r ON c.id_region = r.id_region
-                           """)
-            for row in cursor.fetchall():
-                city_map[(row.name_city, row.name_region)] = row.id_city
-
-            # Information_source - сохраняем существующие
-            info_source_map = {}
-            cursor.execute("SELECT id_source, name_source FROM Information_source")
-            for row in cursor.fetchall():
-                info_source_map[row.name_source] = row.id_source
-
-            # Benefit - сохраняем существующие
-            benefit_map = {}
-            cursor.execute("SELECT id_benefit, name_benefit, bonus_points FROM Benefit")
-            existing_benefits = cursor.fetchall()
-
-            for row in existing_benefits:
-                benefit_map[row.name_benefit] = row.id_benefit
-
-            # Находим новые льготы, которые нужно добавить
-            all_benefits = set()
-            for old_id, benefits_list in benefits_map.items():
-                for benefit in benefits_list:
-                    if benefit['name'] not in benefit_map:
-                        all_benefits.add((benefit['name'], benefit['points']))
-
-            # Находим следующий свободный ID для льгот
-            if benefit_map:
-                benefit_id = max(benefit_map.values()) + 1
-            else:
-                benefit_id = 1
-
-            for benefit_name, bonus_points in all_benefits:
-                cursor.execute("""
-                    SET IDENTITY_INSERT Benefit ON;
-                    INSERT INTO Benefit (id_benefit, name_benefit, bonus_points) VALUES (?, ?, ?);
-                    SET IDENTITY_INSERT Benefit OFF;
-                """, (benefit_id, benefit_name, bonus_points))
-                benefit_map[benefit_name] = benefit_id
-                benefit_id += 1
-
-            # ===== 6. ВСТАВЛЯЕМ АБИТУРИЕНТОВ ЗАНОВО =====
-            for new_id, row in enumerate(applicants_data, start=1):
-                old_id = row.id_applicant
-
-                # Получаем новые ID для справочников
-                edu_key = (row.name_education, row.name_city, row.name_region)
-                new_education_id = education_map.get(edu_key) if row.name_education else None
-                new_parent_id = parent_map.get((row.parent_name, row.parent_phone)) if row.parent_name else None
-                new_city_id = city_map.get((row.name_city, row.name_region)) if row.name_city else None
-                new_info_source_id = info_source_map.get(row.name_source) if row.name_source else None
-
-                # ИЗМЕНЕНО: Удален id_education из INSERT Applicant
-                cursor.execute("""
-                    SET IDENTITY_INSERT Applicant ON;
-                    INSERT INTO Applicant (id_applicant, last_name, first_name, patronymic, id_city, phone, vk, id_parent)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?);
-                    SET IDENTITY_INSERT Applicant OFF;
-                """, (new_id, row.last_name, row.first_name, row.patronymic, new_city_id, row.phone, row.vk,
-                      new_parent_id))
-
-                # ИЗМЕНЕНО: Добавлен id_education в INSERT Application_details
-                cursor.execute("""
-                               INSERT INTO Application_details (id_applicant, code, rating, has_original,
-                                                                submission_date, id_education)
-                               VALUES (?, ?, ?, ?, ?, ?)
-                               """,
-                               (new_id, row.code, row.rating, row.has_original, row.submission_date, new_education_id))
-
-                # Получаем новый id_details
-                cursor.execute("SELECT id_details FROM Application_details WHERE id_applicant = ?", (new_id,))
-                new_id_details = cursor.fetchone()[0]
-
-                # Вставляем дополнительную информацию
-                cursor.execute("""
-                               INSERT INTO Additional_info (id_applicant, department_visit, notes, id_source, dormitory_needed)
-                               VALUES (?, ?, ?, ?, ?)
-                               """, (new_id, row.department_visit, row.notes, new_info_source_id, row.dormitory_needed))
-
-                # Получаем новый id_info
-                cursor.execute("SELECT id_info FROM Additional_info WHERE id_applicant = ?", (new_id,))
-                new_id_info = cursor.fetchone()[0]
-
-                # Обновляем ссылки в Applicant
-                cursor.execute("""
-                               UPDATE Applicant
-                               SET id_details = ?,
-                                   id_info    = ?
-                               WHERE id_applicant = ?
-                               """, (new_id_details, new_id_info, new_id))
-
-                # Восстанавливаем льготы
-                if old_id in benefits_map:
-                    for benefit in benefits_map[old_id]:
-                        benefit_id = benefit_map[benefit['name']]
-                        cursor.execute("""
-                                       INSERT INTO Applicant_benefit (id_applicant, id_benefit)
-                                       VALUES (?, ?)
-                                       """, (new_id, benefit_id))
-
-            # ===== 7. УСТАНАВЛИВАЕМ ПРАВИЛЬНЫЕ ЗНАЧЕНИЯ IDENTITY =====
-            cursor.execute(f"DBCC CHECKIDENT ('Applicant', RESEED, {len(applicants_data)})")
-            cursor.execute(f"DBCC CHECKIDENT ('Education', RESEED, {len(education_map)})")
-            cursor.execute(f"DBCC CHECKIDENT ('Parent', RESEED, {len(parent_map)})")
-
-            self.db_manager.connection.commit()
-
-            # ===== 8. ОБНОВЛЯЕМ ДАННЫЕ В ПАМЯТИ =====
-            self.applicants.clear()
-            loaded_applicants = self.db_manager.load_all_applicants()
-            self.applicants.extend(loaded_applicants)
-
-            self.logger.info(f"Полная перенумерация завершена:")
-            self.logger.info(f"  - Абитуриенты: {len(applicants_data)}")
-            self.logger.info(f"  - Учебные заведения: {len(education_map)}")
-            self.logger.info(f"  - Родители: {len(parent_map)}")
-            self.logger.info(f"  - Источники информации: {len(info_source_map)}")
-            self.logger.info(f"  - Льготы: {len(benefit_map)}")
-
-            self.load_data()
-
-        except Exception as e:
-            self.logger.error(f"Ошибка при перенумерации: {e}")
-            self.db_manager.connection.rollback()
-            messagebox.showerror("Ошибка", f"Не удалось выполнить перенумерацию:\n{str(e)}")
-
+        edit_form.show()
+        
     def delete_applicant(self):
-        """Удаление выбранного абитуриента + очистка неиспользуемых записей"""
+        """Удаление выбранного абитуриента"""
         if not self.selected_applicant:
             messagebox.showwarning("Предупреждение", "Пожалуйста, выберите абитуриента для удаления")
             self.logger.warning("Попытка удаления без выбора абитуриента")
             return
 
-        # Подтверждение
-        confirm = messagebox.askyesno(
-            "Подтверждение удаления",
-            f"Вы уверены, что хотите удалить абитуриента:\n{self.selected_applicant.get_full_name()}?"
-        )
-        if not confirm:
-            self.logger.info("Удаление отменено пользователем")
-            return
+        # Запрос подтверждения
+        confirm = messagebox.askyesno("Подтверждение",
+                                     f"Вы уверены, что хотите удалить абитуриента {self.selected_applicant.get_full_name()}?")
 
-        try:
-            if self.db_manager and self.db_manager.connection:
-                cursor = self.db_manager.connection.cursor()
+        if confirm:
+            # Удаляем из списка
+            self.applicants.remove(self.selected_applicant)
 
-                applicant_id = self.selected_applicant.get_number()
-                self.logger.info(f"Попытка удаления абитуриента ID={applicant_id}")
+            # Перенумеровываем всех абитуриентов
+            for i, applicant in enumerate(self.applicants, 1):
+                applicant.application_details.number = str(i)
 
-                # Удаляем дочерние записи
-                delete_order = [
-                    "Applicant_benefit",
-                    "Application_details",
-                    "Additional_info",
-                    "Applicant"
-                ]
+            self.logger.info(f"Удален абитуриент: {self.selected_applicant.get_full_name()}")
 
-                for table in delete_order:
-                    try:
-                        cursor.execute(
-                            f"DELETE FROM {table} WHERE id_applicant = ?",
-                            (applicant_id,)
-                        )
-                        self.logger.info(f"Удалено из таблицы {table}")
-                    except Exception as e:
-                        self.logger.warning(f"Ошибка при удалении из {table}: {e}")
+            # Обновляем таблицу
+            self.refresh_data()
 
-                # Очистка неиспользуемых справочных записей
-                cursor.execute("""
-                               DELETE
-                               FROM Education
-                               WHERE id_education NOT IN
-                                     (SELECT DISTINCT id_education FROM Applicant WHERE id_education IS NOT NULL)
-                               """)
-
-                cursor.execute("""
-                               DELETE
-                               FROM Parent
-                               WHERE id_parent NOT IN
-                                     (SELECT DISTINCT id_parent FROM Applicant WHERE id_parent IS NOT NULL)
-                               """)
-
-                # УДАЛЕНО: Очистка Specialty (таблица больше не существует)
-
-                self.db_manager.connection.commit()
-                self.logger.info(f"Абитуриент успешно удалён (ID={applicant_id})")
-
-            # Удаление из памяти
-            if self.selected_applicant in self.applicants:
-                self.applicants.remove(self.selected_applicant)
-
-            self.selected_applicant = None
-
-            # ВАЖНО: сначала перенумеровать, потом обновить таблицу
-            self.renumber_applicants()
-
-            messagebox.showinfo("Успех", "Абитуриент успешно удалён и записи перенумерованы")
-
-        except Exception as e:
-            self.logger.error(f"Ошибка удаления: {e}")
-            messagebox.showerror("Ошибка", f"Не удалось удалить абитуриента:\n{e}")
+            messagebox.showinfo("Информация", "Абитуриент успешно удален")
 
     def refresh_data(self):
         """Обновление данных в таблице"""
         self.logger.info("Обновление данных в таблице")
-
-        # ДОБАВЛЕНО: Перезагрузка из БД
-        if self.db_manager and self.db_manager.connection:
-            try:
-                self.applicants.clear()
-                loaded_applicants = self.db_manager.load_all_applicants()
-                self.applicants.extend(loaded_applicants)
-                self.logger.info(f"Данные обновлены из БД: {len(self.applicants)} записей")
-            except Exception as e:
-                self.logger.error(f"Ошибка обновления из БД: {e}")
-
-            self.renumber_applicants()
+        self.load_data()
 
     def filter_data(self):
         """Фильтрация данных в таблице"""
@@ -998,7 +562,7 @@ class ApplicantTableWindow:
         # Для полей с да/нет создаем специальный виджет
         bool_frame = tk.Frame(filter_frame)
         bool_frame.grid(row=2, column=0, columnspan=2, sticky="w", pady=5)
-        bool_frame.grid_remove()
+        bool_frame.grid_remove()  # Изначально скрыт
 
         bool_var = tk.BooleanVar()
         tk.Radiobutton(bool_frame, text="Да", variable=bool_var, value=True).pack(side="left", padx=5)
@@ -1014,12 +578,14 @@ class ApplicantTableWindow:
                 bool_frame.grid_remove()
                 value_entry.grid()
 
+        # Привязываем функцию к изменению выбранного поля
         field_var.trace("w", update_filter_interface)
 
         # Применение фильтра
         def apply_filter():
             selected_field = field_var.get()
 
+            # Получаем значение фильтра
             filter_value = None
             if selected_field in ["Общежитие", "Оригинал документов"]:
                 filter_value = bool_var.get()
@@ -1094,19 +660,17 @@ class ApplicantTableWindow:
             # Создаем DataFrame для экспорта
             data = []
             columns = [
-                "Номер", "Фамилия", "Имя", "Отчество", "Код", "Форма обучения", "Рейтинг", "Льгота", "Оригинал",
-                "Регион", "Город", "Общежитие", "Учебное заведение", "Дата подачи",
+                "Номер", "ФИО", "Ник", "Код", "Рейтинг", "Льгота", "Оригинал",
+                "Город", "Общежитие", "Учебное заведение", "Дата подачи",
                 "Дата посещения", "Откуда узнал/а", "Телефон", "Профиль ВК",
-                "Родитель", "Кем приходится", "Телефон родителя", "Примечание"
+                "Родитель", "Телефон родителя", "Русский язык", "Математика",
+                "Информатика", "Примечание"
             ]
 
             for i, applicant in enumerate(self.applicants):
                 visit_date = ""
                 if applicant.additional_info.department_visit:
-                    if isinstance(applicant.additional_info.department_visit, date):
-                        visit_date = applicant.additional_info.department_visit.strftime("%d.%m.%Y")
-                    elif isinstance(applicant.additional_info.department_visit, datetime):
-                        visit_date = applicant.additional_info.department_visit.strftime("%d.%m.%Y")
+                    visit_date = applicant.additional_info.department_visit.strftime("%d.%m.%Y")
 
                 submission_date = ""
                 if applicant.application_details.submission_date:
@@ -1114,23 +678,18 @@ class ApplicantTableWindow:
 
                 parent_name = ""
                 parent_phone = ""
-                parent_relation = ""
                 if applicant.parent:
-                    parent_name = applicant.parent.parent_name
+                    parent_name = applicant.parent.full_name
                     parent_phone = applicant.parent.phone
-                    parent_relation = getattr(applicant.parent, 'relation', 'Родитель')
 
                 row = [
                     applicant.get_number(),
-                    applicant.last_name,
-                    applicant.first_name,
-                    applicant.patronymic or "",
+                    applicant.get_full_name(),
+                    applicant.contact_info.nickname or "",
                     applicant.get_code(),
-                    getattr(applicant.application_details, 'form_of_education', 'Очная'),
                     applicant.get_rating(),
                     applicant.get_benefits() or "",
                     "Да" if applicant.has_original_documents() else "Нет",
-                    getattr(applicant, 'region', ''),  # НОВОЕ
                     applicant.get_city(),
                     "Да" if applicant.additional_info.dormitory_needed else "Нет",
                     applicant.education.institution,
@@ -1140,8 +699,10 @@ class ApplicantTableWindow:
                     applicant.get_phone(),
                     applicant.contact_info.vk or "",
                     parent_name,
-                    parent_relation,
                     parent_phone,
+                    applicant.exam_scores.russian,
+                    applicant.exam_scores.math,
+                    applicant.exam_scores.informatics,
                     applicant.additional_info.notes or ""
                 ]
 
@@ -1149,7 +710,24 @@ class ApplicantTableWindow:
 
             # Создаем DataFrame и экспортируем в Excel
             df = pd.DataFrame(data, columns=columns)
-            df.to_excel(file_path, index=False, sheet_name="Абитуриенты")
+
+            # Используем ExcelWriter для форматирования
+            with pd.ExcelWriter(file_path, engine='openpyxl') as writer:
+                df.to_excel(writer, index=False, sheet_name="Абитуриенты")
+
+                # Получаем workbook и worksheet для форматирования
+                workbook = writer.book
+                worksheet = writer.sheets["Абитуриенты"]
+
+                # Импортируем нужные классы для форматирования
+                from openpyxl.styles import PatternFill
+
+                # Создаем желтую заливку
+                yellow_fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
+
+                # Применяем желтую заливку к заголовкам (первая строка)
+                for cell in worksheet[1]:
+                    cell.fill = yellow_fill
 
             self.logger.info(f"Данные успешно экспортированы в файл: {file_path}")
             messagebox.showinfo("Экспорт", f"Данные успешно экспортированы в файл:\n{file_path}")
@@ -1158,3 +736,19 @@ class ApplicantTableWindow:
             error_msg = f"Ошибка при экспорте данных: {str(e)}"
             self.logger.error(error_msg)
             messagebox.showerror("Ошибка", f"Произошла ошибка при экспорте:\n{str(e)}")
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    root.title("Реестр абитуриентов")
+    root.geometry("800x600")
+    icon = tk.PhotoImage(file="icon.png")
+    root.iconphoto(True, icon)
+
+    # Создаем тестовые данные
+    logger = Logger()
+    applicant_registry = ApplicantRegistry()
+
+    # Создаем окно с таблицей
+    app = ApplicantTableWindow(root, applicant_registry.applicants, logger)
+
+    root.mainloop()
