@@ -187,15 +187,10 @@ class DatabaseManager:
                     rating FLOAT NOT NULL,
                     has_original BIT DEFAULT 0,
                     submission_date DATE,
-                    id_education INT,
 
                     FOREIGN KEY (id_applicant)
                         REFERENCES Applicant(id_applicant)
-                        ON DELETE CASCADE ON UPDATE NO ACTION,
-
-                    FOREIGN KEY (id_education)
-                        REFERENCES Education(id_education)
-                        ON DELETE SET NULL ON UPDATE CASCADE
+                        ON DELETE CASCADE ON UPDATE NO ACTION
                 )
             """)
 
@@ -410,7 +405,7 @@ class DatabaseManager:
                 ],
                 "Херсонская область": [
                     "Херсон", "Каховка", "Новая Каховка", "Скадовск", "Голая Пристань",
-                    "Берислав", "Генічеськ", "Таврійськ"
+                    "Берислав", "Геническ", "Таврийск"
                 ],
                 "Запорожская область": [
                     "Запорожье", "Мелитополь", "Бердянск", "Энергодар", "Токмак",
@@ -514,31 +509,6 @@ class DatabaseManager:
 
         cursor.execute("SELECT @@IDENTITY")
         return int(cursor.fetchone()[0])
-
-    def get_or_create_specialty(self, code: str) -> int:
-        """Получить ID специальности по коду или создать новую"""
-        cursor = self.connection.cursor()
-
-        cursor.execute(
-            "SELECT id_specialty FROM Specialty WHERE name_specialty = ?",
-            (code,)
-        )
-        row = cursor.fetchone()
-
-        if row:
-            return row[0]
-
-        cursor.execute("SELECT ISNULL(MAX(id_specialty), 0) + 1 FROM Specialty")
-        id_specialty = cursor.fetchone()[0]
-
-        cursor.execute("""
-            SET IDENTITY_INSERT Specialty ON;
-            INSERT INTO Specialty (id_specialty, name_specialty) VALUES (?, ?);
-            SET IDENTITY_INSERT Specialty OFF;
-        """, (id_specialty, code))
-
-        self.connection.commit()
-        return id_specialty
 
     def get_all_benefits(self):
         """Получить все льготы с баллами из БД"""
@@ -691,12 +661,11 @@ class DatabaseManager:
 
             # ИЗМЕНЕНО: Добавлен id_education в Application_details
             cursor.execute("""
-                           INSERT INTO Application_details (id_applicant, code, rating, has_original, submission_date,
-                                                            id_education)
-                           VALUES (?, ?, ?, ?, ?, ?)
+                           INSERT INTO Application_details (id_applicant, code, rating, has_original, submission_date)
+                           VALUES (?, ?, ?, ?, ?)
                            """, (id_applicant, applicant.application_details.code, total_rating,
                                  applicant.application_details.has_original,
-                                 applicant.application_details.submission_date, id_education))
+                                 applicant.application_details.submission_date))
 
             self.connection.commit()
 
@@ -814,13 +783,11 @@ class DatabaseManager:
                            SET code            = ?,
                                rating          = ?,
                                has_original    = ?,
-                               submission_date = ?,
-                               id_education    = ?
+                               submission_date = ?
                            WHERE id_applicant = ?
                            """, (applicant.application_details.code, total_rating,
                                  applicant.application_details.has_original,
-                                 applicant.application_details.submission_date,
-                                 id_education, id_applicant))
+                                 applicant.application_details.submission_date, id_applicant))
 
             # Обновляем связь с льготами
             cursor.execute("DELETE FROM Applicant_benefit WHERE id_applicant = ?", (id_applicant,))
@@ -866,16 +833,17 @@ class DatabaseManager:
         try:
             cursor = self.connection.cursor()
 
+            # ИСПРАВЛЕНО: Убираем JOIN Education, так как он создаёт дубликаты
             cursor.execute("""
                            SELECT a.id_applicant,
                                   a.last_name,
                                   a.first_name,
                                   a.patronymic,
+                                  c.id_city,
                                   c.name_city,
                                   r.name_region,
                                   a.phone,
                                   a.vk,
-                                  e.name_education,
                                   ad.code,
                                   ad.rating,
                                   ad.has_original,
@@ -893,7 +861,6 @@ class DatabaseManager:
                                     LEFT JOIN City c ON a.id_city = c.id_city
                                     LEFT JOIN Region r ON c.id_region = r.id_region
                                     LEFT JOIN Application_details ad ON a.id_applicant = ad.id_applicant
-                                    LEFT JOIN Education e ON ad.id_education = e.id_education
                                     LEFT JOIN Additional_info ai ON a.id_applicant = ai.id_applicant
                                     LEFT JOIN Information_source isrc ON ai.id_source = isrc.id_source
                                     LEFT JOIN Parent p ON a.id_parent = p.id_parent
@@ -904,17 +871,37 @@ class DatabaseManager:
             rows = cursor.fetchall()
             self.logger.info(f"Получено {len(rows)} строк из БД")
 
-            applicants = []
+            # ИСПРАВЛЕНО: Группируем данные по id_applicant
+            applicants_dict = {}
+
             for row in rows:
                 try:
-                    education = EducationalBackground(institution=row.name_education or "")
+                    id_applicant = row.id_applicant
+
+                    # Если абитуриент уже обработан, пропускаем
+                    if id_applicant in applicants_dict:
+                        continue
+
+                    # Получаем название учебного заведения по id_city
+                    institution_name = ""
+                    if row.id_city:
+                        cursor.execute("""
+                                       SELECT TOP 1 e.name_education
+                                       FROM Education e
+                                       WHERE e.id_city = ?
+                                       ORDER BY e.id_education
+                                       """, (row.id_city,))
+                        education_row = cursor.fetchone()
+                        institution_name = education_row.name_education if education_row else ""
+
+                    education = EducationalBackground(institution=institution_name)
 
                     contact_info = ContactInfo(phone=row.phone or "", vk=row.vk)
 
                     base_rating = (row.rating or 0.0) - (row.bonus_points or 0)
 
                     application_details = ApplicationDetails(
-                        number=str(row.id_applicant),
+                        number=str(id_applicant),
                         code=row.code or "",
                         rating=base_rating,
                         has_original=row.has_original or False,
@@ -953,12 +940,13 @@ class DatabaseManager:
                         region=row.name_region or ""
                     )
 
-                    applicants.append(applicant)
+                    applicants_dict[id_applicant] = applicant
 
                 except Exception as e:
                     self.logger.error(f"Ошибка обработки строки с id_applicant={row.id_applicant}: {e}")
                     continue
 
+            applicants = list(applicants_dict.values())
             self.logger.info(f"Успешно загружено {len(applicants)} абитуриентов из БД")
             return applicants
 

@@ -635,7 +635,6 @@ class ApplicantTableWindow:
                                   r.name_region,
                                   a.phone,
                                   a.vk,
-                                  e.name_education,
                                   p.name     as parent_name,
                                   p.phone    as parent_phone,
                                   p.relation as parent_relation,
@@ -652,7 +651,6 @@ class ApplicantTableWindow:
                                     LEFT JOIN Region r ON c.id_region = r.id_region
                                     LEFT JOIN Parent p ON a.id_parent = p.id_parent
                                     LEFT JOIN Application_details ad ON a.id_applicant = ad.id_applicant
-                                    LEFT JOIN Education e ON ad.id_education = e.id_education
                                     LEFT JOIN Additional_info ai ON a.id_applicant = ai.id_applicant
                                     LEFT JOIN Information_source isrc ON ai.id_source = isrc.id_source
                            ORDER BY a.id_applicant
@@ -683,19 +681,19 @@ class ApplicantTableWindow:
             cursor.execute("DELETE FROM Application_details")
             cursor.execute("DELETE FROM Additional_info")
             cursor.execute("DELETE FROM Applicant")
-            cursor.execute("DELETE FROM Education")
+            # Education НЕ удаляем - он привязан к City
             cursor.execute("DELETE FROM Parent")
 
             # ===== 4. СБРАСЫВАЕМ IDENTITY =====
             cursor.execute("DBCC CHECKIDENT ('Applicant', RESEED, 0)")
-            cursor.execute("DBCC CHECKIDENT ('Education', RESEED, 0)")
             cursor.execute("DBCC CHECKIDENT ('Parent', RESEED, 0)")
             cursor.execute("DBCC CHECKIDENT ('Application_details', RESEED, 0)")
             cursor.execute("DBCC CHECKIDENT ('Additional_info', RESEED, 0)")
 
-            # ===== 5. СОЗДАЕМ СПРАВОЧНИКИ С УНИКАЛЬНЫМИ ЗНАЧЕНИЯМИ =====
+            # ===== 5. СОЗДАЕМ СПРАВОЧНИКИ =====
 
-            city_map = {}  # {(name_city, name_region): id_city}
+            # City и Region - НЕ удаляем, они уже существуют
+            city_map = {}
             cursor.execute("""
                            SELECT c.id_city, c.name_city, r.name_region
                            FROM City c
@@ -703,25 +701,6 @@ class ApplicantTableWindow:
                            """)
             for row in cursor.fetchall():
                 city_map[(row.name_city, row.name_region)] = row.id_city
-
-            # Education
-            education_map = {}  # {(old_name, city): new_id}
-            education_id = 1
-            for row in applicants_data:
-                if row.name_education:
-                    edu_key = (row.name_education, row.name_city, row.name_region)
-                    if edu_key not in education_map:
-                        # Получаем id_city
-                        id_city = city_map.get((row.name_city, row.name_region))
-
-                        cursor.execute("""
-                            SET IDENTITY_INSERT Education ON;
-                            INSERT INTO Education (id_education, name_education, id_city) 
-                            VALUES (?, ?, ?);
-                            SET IDENTITY_INSERT Education OFF;
-                        """, (education_id, row.name_education, id_city))
-                        education_map[edu_key] = education_id
-                        education_id += 1
 
             # Parent
             parent_map = {}  # {(name, phone): new_id}
@@ -738,16 +717,6 @@ class ApplicantTableWindow:
                         parent_map[parent_key] = parent_id
                         parent_id += 1
 
-            # City и Region - НЕ удаляем и НЕ пересоздаём, они уже существуют
-            city_map = {}
-            cursor.execute("""
-                           SELECT c.id_city, c.name_city, r.name_region
-                           FROM City c
-                                    JOIN Region r ON c.id_region = r.id_region
-                           """)
-            for row in cursor.fetchall():
-                city_map[(row.name_city, row.name_region)] = row.id_city
-
             # Information_source - сохраняем существующие
             info_source_map = {}
             cursor.execute("SELECT id_source, name_source FROM Information_source")
@@ -757,45 +726,19 @@ class ApplicantTableWindow:
             # Benefit - сохраняем существующие
             benefit_map = {}
             cursor.execute("SELECT id_benefit, name_benefit, bonus_points FROM Benefit")
-            existing_benefits = cursor.fetchall()
-
-            for row in existing_benefits:
+            for row in cursor.fetchall():
                 benefit_map[row.name_benefit] = row.id_benefit
-
-            # Находим новые льготы, которые нужно добавить
-            all_benefits = set()
-            for old_id, benefits_list in benefits_map.items():
-                for benefit in benefits_list:
-                    if benefit['name'] not in benefit_map:
-                        all_benefits.add((benefit['name'], benefit['points']))
-
-            # Находим следующий свободный ID для льгот
-            if benefit_map:
-                benefit_id = max(benefit_map.values()) + 1
-            else:
-                benefit_id = 1
-
-            for benefit_name, bonus_points in all_benefits:
-                cursor.execute("""
-                    SET IDENTITY_INSERT Benefit ON;
-                    INSERT INTO Benefit (id_benefit, name_benefit, bonus_points) VALUES (?, ?, ?);
-                    SET IDENTITY_INSERT Benefit OFF;
-                """, (benefit_id, benefit_name, bonus_points))
-                benefit_map[benefit_name] = benefit_id
-                benefit_id += 1
 
             # ===== 6. ВСТАВЛЯЕМ АБИТУРИЕНТОВ ЗАНОВО =====
             for new_id, row in enumerate(applicants_data, start=1):
                 old_id = row.id_applicant
 
                 # Получаем новые ID для справочников
-                edu_key = (row.name_education, row.name_city, row.name_region)
-                new_education_id = education_map.get(edu_key) if row.name_education else None
                 new_parent_id = parent_map.get((row.parent_name, row.parent_phone)) if row.parent_name else None
                 new_city_id = city_map.get((row.name_city, row.name_region)) if row.name_city else None
                 new_info_source_id = info_source_map.get(row.name_source) if row.name_source else None
 
-                # ИЗМЕНЕНО: Удален id_education из INSERT Applicant
+                # Вставляем Applicant (без id_education)
                 cursor.execute("""
                     SET IDENTITY_INSERT Applicant ON;
                     INSERT INTO Applicant (id_applicant, last_name, first_name, patronymic, id_city, phone, vk, id_parent)
@@ -804,15 +747,13 @@ class ApplicantTableWindow:
                 """, (new_id, row.last_name, row.first_name, row.patronymic, new_city_id, row.phone, row.vk,
                       new_parent_id))
 
-                # ИЗМЕНЕНО: Добавлен id_education в INSERT Application_details
+                # Вставляем Application_details (БЕЗ id_education)
                 cursor.execute("""
-                               INSERT INTO Application_details (id_applicant, code, rating, has_original,
-                                                                submission_date, id_education)
-                               VALUES (?, ?, ?, ?, ?, ?)
+                               INSERT INTO Application_details (id_applicant, code, rating, has_original, submission_date)
+                               VALUES (?, ?, ?, ?, ?)
                                """,
-                               (new_id, row.code, row.rating, row.has_original, row.submission_date, new_education_id))
+                               (new_id, row.code, row.rating, row.has_original, row.submission_date))
 
-                # Получаем новый id_details
                 cursor.execute("SELECT id_details FROM Application_details WHERE id_applicant = ?", (new_id,))
                 new_id_details = cursor.fetchone()[0]
 
@@ -822,7 +763,6 @@ class ApplicantTableWindow:
                                VALUES (?, ?, ?, ?, ?)
                                """, (new_id, row.department_visit, row.notes, new_info_source_id, row.dormitory_needed))
 
-                # Получаем новый id_info
                 cursor.execute("SELECT id_info FROM Additional_info WHERE id_applicant = ?", (new_id,))
                 new_id_info = cursor.fetchone()[0]
 
@@ -837,15 +777,15 @@ class ApplicantTableWindow:
                 # Восстанавливаем льготы
                 if old_id in benefits_map:
                     for benefit in benefits_map[old_id]:
-                        benefit_id = benefit_map[benefit['name']]
-                        cursor.execute("""
-                                       INSERT INTO Applicant_benefit (id_applicant, id_benefit)
-                                       VALUES (?, ?)
-                                       """, (new_id, benefit_id))
+                        benefit_id = benefit_map.get(benefit['name'])
+                        if benefit_id:
+                            cursor.execute("""
+                                           INSERT INTO Applicant_benefit (id_applicant, id_benefit)
+                                           VALUES (?, ?)
+                                           """, (new_id, benefit_id))
 
             # ===== 7. УСТАНАВЛИВАЕМ ПРАВИЛЬНЫЕ ЗНАЧЕНИЯ IDENTITY =====
             cursor.execute(f"DBCC CHECKIDENT ('Applicant', RESEED, {len(applicants_data)})")
-            cursor.execute(f"DBCC CHECKIDENT ('Education', RESEED, {len(education_map)})")
             cursor.execute(f"DBCC CHECKIDENT ('Parent', RESEED, {len(parent_map)})")
 
             self.db_manager.connection.commit()
@@ -855,12 +795,7 @@ class ApplicantTableWindow:
             loaded_applicants = self.db_manager.load_all_applicants()
             self.applicants.extend(loaded_applicants)
 
-            self.logger.info(f"Полная перенумерация завершена:")
-            self.logger.info(f"  - Абитуриенты: {len(applicants_data)}")
-            self.logger.info(f"  - Учебные заведения: {len(education_map)}")
-            self.logger.info(f"  - Родители: {len(parent_map)}")
-            self.logger.info(f"  - Источники информации: {len(info_source_map)}")
-            self.logger.info(f"  - Льготы: {len(benefit_map)}")
+            self.logger.info(f"Полная перенумерация завершена: {len(applicants_data)} абитуриентов")
 
             self.load_data()
 
@@ -870,7 +805,7 @@ class ApplicantTableWindow:
             messagebox.showerror("Ошибка", f"Не удалось выполнить перенумерацию:\n{str(e)}")
 
     def delete_applicant(self):
-        """Удаление выбранного абитуриента + очистка неиспользуемых записей"""
+        """Удаление выбранного абитуриента"""
         if not self.selected_applicant:
             messagebox.showwarning("Предупреждение", "Пожалуйста, выберите абитуриента для удаления")
             self.logger.warning("Попытка удаления без выбора абитуриента")
@@ -888,47 +823,14 @@ class ApplicantTableWindow:
         try:
             if self.db_manager and self.db_manager.connection:
                 cursor = self.db_manager.connection.cursor()
-
                 applicant_id = self.selected_applicant.get_number()
-                self.logger.info(f"Попытка удаления абитуриента ID={applicant_id}")
+                self.logger.info(f"Удаление абитуриента ID={applicant_id}")
 
-                # Удаляем дочерние записи
-                delete_order = [
-                    "Applicant_benefit",
-                    "Application_details",
-                    "Additional_info",
-                    "Applicant"
-                ]
-
-                for table in delete_order:
-                    try:
-                        cursor.execute(
-                            f"DELETE FROM {table} WHERE id_applicant = ?",
-                            (applicant_id,)
-                        )
-                        self.logger.info(f"Удалено из таблицы {table}")
-                    except Exception as e:
-                        self.logger.warning(f"Ошибка при удалении из {table}: {e}")
-
-                # Очистка неиспользуемых справочных записей
-                cursor.execute("""
-                               DELETE
-                               FROM Education
-                               WHERE id_education NOT IN
-                                     (SELECT DISTINCT id_education FROM Applicant WHERE id_education IS NOT NULL)
-                               """)
-
-                cursor.execute("""
-                               DELETE
-                               FROM Parent
-                               WHERE id_parent NOT IN
-                                     (SELECT DISTINCT id_parent FROM Applicant WHERE id_parent IS NOT NULL)
-                               """)
-
-                # УДАЛЕНО: Очистка Specialty (таблица больше не существует)
-
+                # Удаляем из БД (CASCADE сделает всё автоматически)
+                cursor.execute("DELETE FROM Applicant WHERE id_applicant = ?", (applicant_id,))
                 self.db_manager.connection.commit()
-                self.logger.info(f"Абитуриент успешно удалён (ID={applicant_id})")
+
+                self.logger.info(f"Абитуриент успешно удалён из БД (ID={applicant_id})")
 
             # Удаление из памяти
             if self.selected_applicant in self.applicants:
@@ -936,13 +838,15 @@ class ApplicantTableWindow:
 
             self.selected_applicant = None
 
-            # ВАЖНО: сначала перенумеровать, потом обновить таблицу
+            # Перенумерация и обновление таблицы
             self.renumber_applicants()
 
-            messagebox.showinfo("Успех", "Абитуриент успешно удалён и записи перенумерованы")
+            messagebox.showinfo("Успех", "Абитуриент успешно удалён")
 
         except Exception as e:
             self.logger.error(f"Ошибка удаления: {e}")
+            if self.db_manager:
+                self.db_manager.connection.rollback()
             messagebox.showerror("Ошибка", f"Не удалось удалить абитуриента:\n{e}")
 
     def refresh_data(self):
