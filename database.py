@@ -136,7 +136,7 @@ class DatabaseManager:
                 IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='Information_source' AND xtype='U')
                 CREATE TABLE Information_source (
                     id_source INT IDENTITY(1,1) PRIMARY KEY,
-                    name_source NVARCHAR(255)
+                    name_source NVARCHAR(255) NOT NULL
                 )
             """)
 
@@ -158,7 +158,7 @@ class DatabaseManager:
                     last_name NVARCHAR(100) NOT NULL,
                     first_name NVARCHAR(100) NOT NULL,
                     patronymic NVARCHAR(100),
-                    id_city INT,
+                    id_city INT ,
                     phone NVARCHAR(20) NOT NULL,
                     vk NVARCHAR(255),
 
@@ -182,7 +182,7 @@ class DatabaseManager:
                 IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='Application_details' AND xtype='U')
                 CREATE TABLE Application_details (
                     id_details INT IDENTITY(1,1) PRIMARY KEY,
-                    id_applicant INT,
+                    id_applicant INT NOT NULL,
                     code NVARCHAR(50) NOT NULL,
                     rating FLOAT NOT NULL,
                     has_original BIT DEFAULT 0,
@@ -200,7 +200,7 @@ class DatabaseManager:
                 IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='Additional_info' AND xtype='U')
                 CREATE TABLE Additional_info (
                     id_info INT IDENTITY(1,1) PRIMARY KEY,
-                    id_applicant INT,
+                    id_applicant INT NOT NULL,
                     department_visit DATE,
                     notes NVARCHAR(MAX),
                     id_source INT,
@@ -628,7 +628,6 @@ class DatabaseManager:
             cursor.execute("SELECT ISNULL(MAX(id_applicant), 0) + 1 FROM Applicant")
             id_applicant = cursor.fetchone()[0]
 
-            # ИЗМЕНЕНО: Получаем id_education с привязкой к городу
             id_education = self.get_or_create_education(
                 applicant.education.institution,
                 applicant.city,
@@ -641,7 +640,6 @@ class DatabaseManager:
 
             id_city = self.get_or_create_city(applicant.city, applicant.region)
 
-            # ИЗМЕНЕНО: Удален id_education из Applicant
             cursor.execute("""
                 SET IDENTITY_INSERT Applicant ON;
                 INSERT INTO Applicant (id_applicant, last_name, first_name, patronymic, id_city, phone, vk, id_parent)
@@ -659,7 +657,6 @@ class DatabaseManager:
 
             total_rating = applicant.application_details.rating + benefit_points
 
-            # ИЗМЕНЕНО: Добавлен id_education в Application_details
             cursor.execute("""
                            INSERT INTO Application_details (id_applicant, code, rating, has_original, submission_date)
                            VALUES (?, ?, ?, ?, ?)
