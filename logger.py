@@ -4,7 +4,7 @@ import os
 
 
 class Logger:
-    def __init__(self, log_file="app.log"):
+    def __init__(self, log_file="applicant_system.log"):
         """
         Инициализация логгера с указанным файлом для записи логов
 

@@ -3,7 +3,7 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 from classes import *
 from datetime import datetime
-
+from app_add_applicant import setup_keyboard_shortcuts
 
 def create_context_menu(widget, parent):
     """Создание контекстного меню для виджета"""
@@ -152,6 +152,8 @@ def edit_applicant_window(parent, selected_applicant, load_data_callback, logger
     edit_window.resizable(True, True)
     edit_window.minsize(1400, 800)
     edit_window.grab_set()
+
+    setup_keyboard_shortcuts(edit_window)
 
     # Применяем стиль заголовка
     header_frame = tk.Frame(edit_window, bg="#3f51b5", height=70)

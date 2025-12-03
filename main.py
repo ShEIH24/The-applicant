@@ -1,6 +1,6 @@
 """app_table.py - главный файл приложения с интеграцией БД"""
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import messagebox, ttk, PhotoImage
 import logging
 from database import DatabaseManager
 from classes import ApplicantRegistry
@@ -64,8 +64,8 @@ def main():
 
     # Установка иконки если есть
     try:
-        icon = tk.PhotoImage(file="icon.ico")
-        root.iconphoto(True, icon)
+        icon = tk.PhotoImage(file="icon.png")
+        root.iconphoto(False, icon)
     except:
         pass
 

@@ -10,13 +10,11 @@ class DatabaseManager:
                  use_windows_auth: bool = True):
         """
         Инициализация менеджера БД
-
-        Args:
-            server: Имя сервера (например, 'localhost' или 'localhost\\SQLEXPRESS')
-            database: Имя базы данных
-            username: Имя пользователя (если не используется Windows Authentication)
-            password: Пароль (если не используется Windows Authentication)
-            use_windows_auth: Использовать Windows Authentication
+        server: Имя сервера (например, 'localhost' или 'localhost\\SQLEXPRESS')
+        database: Имя базы данных
+        username: Имя пользователя (если не используется Windows Authentication)
+        password: Пароль (если не используется Windows Authentication)
+        use_windows_auth: Использовать Windows Authentication
         """
         self.server = server
         self.database = database
@@ -48,7 +46,7 @@ class DatabaseManager:
             self.connection = pyodbc.connect(connection_string)
             self.logger.info(f"Успешное подключение к БД {self.database}")
 
-            # ИЗМЕНЕНО: Сначала создаем структуру БД, потом инициализируем данные
+            # Сначала создаем структуру БД, потом инициализируем данные
             try:
                 # Проверяем, нужно ли создавать структуру
                 cursor = self.connection.cursor()
@@ -83,7 +81,7 @@ class DatabaseManager:
         try:
             cursor = self.connection.cursor()
 
-            # ИЗМЕНЕНО: Сначала проверяем и создаем таблицы Region и City
+            # Сначала проверяем и создаем таблицы Region и City
             cursor.execute("""
                 IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='Region' AND xtype='U')
                 CREATE TABLE Region (
@@ -107,7 +105,7 @@ class DatabaseManager:
             # Коммитим создание Region и City перед их использованием
             self.connection.commit()
 
-            # Таблица Education (ИЗМЕНЕНО: добавлен id_city)
+            # Таблица Education
             cursor.execute("""
                 IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='Education' AND xtype='U')
                 CREATE TABLE Education (
@@ -150,7 +148,7 @@ class DatabaseManager:
                 )
             """)
 
-            # Таблица Applicant (ИЗМЕНЕНО: удален id_education)
+            # Таблица Applicant
             cursor.execute("""
                 IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='Applicant' AND xtype='U')
                 CREATE TABLE Applicant (
@@ -177,7 +175,6 @@ class DatabaseManager:
             """)
 
             # Таблица Application_details
-            # ИСПРАВЛЕНО: Убраны каскадные UPDATE для избежания циклических зависимостей
             cursor.execute("""
                 IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='Application_details' AND xtype='U')
                 CREATE TABLE Application_details (
@@ -195,7 +192,6 @@ class DatabaseManager:
             """)
 
             # Таблица Additional_info
-            # ИСПРАВЛЕНО: Убраны каскадные UPDATE для избежания циклических зависимостей
             cursor.execute("""
                 IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='Additional_info' AND xtype='U')
                 CREATE TABLE Additional_info (
@@ -217,7 +213,6 @@ class DatabaseManager:
             """)
 
             # Таблица связи Applicant_benefit
-            # ИСПРАВЛЕНО: Убраны каскадные UPDATE для избежания циклических зависимостей
             cursor.execute("""
                 IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='Applicant_benefit' AND xtype='U')
                 CREATE TABLE Applicant_benefit (
@@ -376,7 +371,7 @@ class DatabaseManager:
         try:
             cursor = self.connection.cursor()
 
-            # ДОБАВЛЕНО: Проверяем существование таблиц перед использованием
+            # Проверяем существование таблиц перед использованием
             cursor.execute("""
                 IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='Region' AND xtype='U')
                 BEGIN
@@ -725,7 +720,7 @@ class DatabaseManager:
 
             total_rating = base_rating + new_bonus_points
 
-            # ИЗМЕНЕНО: Получаем id_education с привязкой к городу
+            # Получаем id_education с привязкой к городу
             id_education = self.get_or_create_education(
                 applicant.education.institution,
                 applicant.city,
@@ -759,7 +754,7 @@ class DatabaseManager:
                 else:
                     id_parent = self.add_parent(applicant.parent)
 
-            # ИЗМЕНЕНО: Удален id_education из UPDATE Applicant
+            # Удален id_education из UPDATE Applicant
             cursor.execute("""
                            UPDATE Applicant
                            SET last_name  = ?,
@@ -774,7 +769,7 @@ class DatabaseManager:
                                  id_city, applicant.phone, applicant.contact_info.vk,
                                  id_parent, id_applicant))
 
-            # ИЗМЕНЕНО: Добавлен id_education в UPDATE Application_details
+            # Добавлен id_education в UPDATE Application_details
             cursor.execute("""
                            UPDATE Application_details
                            SET code            = ?,
@@ -830,7 +825,6 @@ class DatabaseManager:
         try:
             cursor = self.connection.cursor()
 
-            # ИСПРАВЛЕНО: Убираем JOIN Education, так как он создаёт дубликаты
             cursor.execute("""
                            SELECT a.id_applicant,
                                   a.last_name,
@@ -868,7 +862,7 @@ class DatabaseManager:
             rows = cursor.fetchall()
             self.logger.info(f"Получено {len(rows)} строк из БД")
 
-            # ИСПРАВЛЕНО: Группируем данные по id_applicant
+            # Группируем данные по id_applicant
             applicants_dict = {}
 
             for row in rows:

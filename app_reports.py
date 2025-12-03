@@ -631,7 +631,6 @@ class ReportsWindow:
             report = f"""
 ПРОГНОЗ ПРОХОДНОГО БАЛЛА (СТАТИСТИЧЕСКИЙ)
 
-
 СТАТИСТИКА ПО РЕЙТИНГОВЫМ БАЛЛАМ (абитуриенты с оригиналами):
 
 • Количество абитуриентов с оригиналами: {len(ratings)}
@@ -844,11 +843,11 @@ class ReportsWindow:
 
                 # Оценка эффективности
                 if conversion_rate >= 70:
-                    effectiveness = "🟢 ВЫСОКАЯ"
+                    effectiveness = "ВЫСОКАЯ"
                 elif conversion_rate >= 50:
-                    effectiveness = "🟡 СРЕДНЯЯ"
+                    effectiveness = "СРЕДНЯЯ"
                 else:
-                    effectiveness = "🔴 НИЗКАЯ"
+                    effectiveness = "НИЗКАЯ"
 
                 report += f"""
 {row.source}
@@ -1093,6 +1092,7 @@ class ReportsWindow:
                 messagebox.showinfo("Информация", "Нет абитуриентов в базе данных")
                 return
 
+            reserve_threshold = passing_score * 0.95
             reserve_threshold = passing_score * 0.95
 
             passed_with_originals = 0

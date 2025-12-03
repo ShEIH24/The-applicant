@@ -4,7 +4,6 @@ from tkinter import messagebox, ttk
 from classes import *
 from datetime import datetime
 
-
 def setup_keyboard_shortcuts(window):
     """Настройка горячих клавиш для работы с русской раскладкой"""
 
@@ -122,7 +121,7 @@ def add_applicant_window(parent, applicants, load_data_callback, logger, db_mana
     """Открывает окно для добавления нового абитуриента"""
     logger.info("Открытие формы добавления абитуриента")
 
-    # ДОБАВЛЕНО: Загрузка справочных данных из БД
+    # Загрузка справочных данных из БД
     benefits_data = {}
     info_source_options = []
 
@@ -255,7 +254,7 @@ def add_applicant_window(parent, applicants, load_data_callback, logger, db_mana
     number_entry = tk.Entry(basic_frame)
     number_entry.grid(row=2, column=1, sticky="ew", padx=5, pady=5)
 
-    # ИСПРАВЛЕНО: показываем следующий номер, который будет присвоен
+    # показываем следующий номер, который будет присвоен
     if db_manager and db_manager.connection:
         try:
             cursor = db_manager.connection.cursor()
@@ -275,7 +274,7 @@ def add_applicant_window(parent, applicants, load_data_callback, logger, db_mana
     code_entry.grid(row=2, column=3, sticky="ew", padx=5, pady=5)
     create_context_menu(code_entry, add_window)
 
-    # ДОБАВЛЕНО: Форма обучения
+    # Форма обучения
     tk.Label(basic_frame, text="Форма обучения *", font=("Arial", 9), fg="red").grid(row=3, column=0, sticky="w",
                                                                                      pady=5)
 
@@ -325,7 +324,7 @@ def add_applicant_window(parent, applicants, load_data_callback, logger, db_mana
     benefits_combobox.bind("<<ComboboxSelected>>", update_bonus_points)
     create_context_menu(benefits_combobox, add_window)
 
-    # ИСПРАВЛЕНО: Оригинал документов и Дата подачи - изменен номер строки на 5
+    # Оригинал документов и Дата подачи
     frame_row5 = tk.Frame(basic_frame)
     frame_row5.grid(row=5, column=0, columnspan=4, sticky="ew")
     frame_row5.columnconfigure(0, weight=1)
@@ -441,7 +440,7 @@ def add_applicant_window(parent, applicants, load_data_callback, logger, db_mana
                                                                          tk.END) if visit_date_entry.get() == "ДД.ММ.ГГГГ" else None)
     visit_date_entry.bind("<KeyRelease>", lambda event: format_date(event, visit_date_entry))
 
-    # Откуда узнал/а - ИСПРАВЛЕНО: заменено на ComboBox
+    # Откуда узнал/а
     tk.Label(additional_frame, text="Откуда узнал/а", font=("Arial", 9)).grid(row=1, column=0, sticky="w", pady=5,
                                                                               padx=(0, 5))
 
@@ -504,7 +503,7 @@ def add_applicant_window(parent, applicants, load_data_callback, logger, db_mana
     parent_entry.grid(row=2, column=1, sticky="ew", padx=5, pady=5)
     create_context_menu(parent_entry, add_window)
 
-    # ДОБАВЛЕНО: Кем приходится (родственная связь)
+    # Кем приходится (родственная связь)
     tk.Label(contact_frame, text="Кем приходится", font=("Arial", 9)).grid(row=3, column=0, sticky="w", pady=5)
 
     relation_options = [

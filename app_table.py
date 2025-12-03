@@ -5,7 +5,6 @@ import pandas as pd
 from pandas.plotting import table
 
 from classes import *
-from logger import Logger
 from app_add_applicant import add_applicant_window, parse_full_name
 from app_edit_applicant import edit_applicant_window
 from app_reports import open_reports_window
@@ -13,15 +12,6 @@ from app_reports import open_reports_window
 
 class ApplicantTableWindow:
     def __init__(self, parent, applicants, logger, db_manager=None, offer_import=True):
-        """
-        Инициализация окна с таблицей абитуриентов
-
-        :param parent: Родительский виджет
-        :param applicants: Список абитуриентов
-        :param logger: Экземпляр логгера
-        :param db_manager: Менеджер базы данных
-        :param offer_import: Флаг, предлагать ли импорт данных (только при первом запуске)
-        """
         self.parent = parent
         self.applicants = applicants
         self.logger = logger
@@ -103,7 +93,7 @@ class ApplicantTableWindow:
                         first_name = first_name or fn
                         patronymic = patronymic or pt
 
-                    # НОВОЕ: Получаем регион и город
+                    # Получаем регион и город
                     region = str(row.get('Регион', '')).strip() if pd.notna(row.get('Регион', '')) else ''
                     city = str(row.get('Город', '')).strip()
 
@@ -188,7 +178,7 @@ class ApplicantTableWindow:
             self.logger.error(error_msg)
             messagebox.showerror("Ошибка", f"Произошла ошибка при импорте:\n{str(e)}")
 
-    #Импорт данных с БД
+    # Импорт данных с БД
     def import_from_database(self):
         """Импорт данных напрямую из БД"""
         if not self.db_manager or not self.db_manager.connection:
@@ -198,7 +188,7 @@ class ApplicantTableWindow:
             self.logger.warning("Попытка импорта из БД без подключения")
             return
 
-        # ИЗМЕНЕНО: Если данные уже загружены из БД при старте, предупреждаем
+        # Если данные уже загружены из БД при старте, предупреждаем
         if len(self.applicants) > 0:
             messagebox.showinfo(
                 "Информация",
@@ -499,7 +489,7 @@ class ApplicantTableWindow:
                 parent_name = applicant.parent.parent_name
                 parent_phone = applicant.parent.phone
 
-            # ИСПРАВЛЕНО: Показываем итоговый рейтинг (базовый + бонусы)
+            # Показываем итоговый рейтинг (базовый + бонусы)
             total_rating = applicant.get_rating() + (applicant.application_details.bonus_points or 0)
 
             values = (
@@ -853,7 +843,7 @@ class ApplicantTableWindow:
         """Обновление данных в таблице"""
         self.logger.info("Обновление данных в таблице")
 
-        # ДОБАВЛЕНО: Перезагрузка из БД
+        # Перезагрузка из БД
         if self.db_manager and self.db_manager.connection:
             try:
                 self.applicants.clear()
